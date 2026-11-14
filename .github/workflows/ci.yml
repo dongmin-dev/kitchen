@@ -1,0 +1,13 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install shellcheck
+      - run: shellcheck bin/kitchen test/run.sh test/stubs/*
+      - run: /bin/bash test/run.sh

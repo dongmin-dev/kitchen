@@ -1,0 +1,12 @@
+#!/bin/bash
+# Stub herdr: logs every call and answers with the response shapes of herdr 0.9.5.
+{ printf 'herdr'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+case "$1 $2" in
+  "workspace create") [ -z "${STUB_FAIL_WORKSPACE:-}" ] || { echo '{"error":{"code":"boom","message":"boom"}}' >&2; exit 1; }
+                      echo '{"result":{"workspace":{"workspace_id":"w1"},"root_pane":{"pane_id":"w1:p1"}}}' ;;
+  "pane split")       echo '{"result":{"pane":{"pane_id":"w1:p2"}}}' ;;
+  "pane get")         echo '{"result":{"pane":{"pane_id":"'"$3"'"}}}' ;;
+  "pane run")         bash -c "$4" >/dev/null 2>&1 ;;   # the real pane runs it asynchronously
+  "agent get")        echo '{"result":{"agent":{"agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"}}}' ;;
+esac
+exit 0

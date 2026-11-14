@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stub codex: "review" prints a verdict on stdout and noise on stderr; "exec" writes the card.
+{ printf 'codex'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+case "$1" in
+  review) echo "transcript noise" >&2
+          [ -z "${STUB_FAIL_REVIEW:-}" ] || { echo "stream error" >&2; exit 3; }
+          echo "- [P1] Off-by-one in the loop — src/a.c:3" ;;
+  exec)   printf 'FILES: 1 file changed\nTESTS: 2/2 (make test)\nFAILED: none\nFLOW: skipped (no web UI)\nFLOW NOTES: none\nSHOTS: none\n' > .kitchen/card.txt
+          echo done ;;
+esac

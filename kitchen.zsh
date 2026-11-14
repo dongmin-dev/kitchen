@@ -10,7 +10,8 @@ chef() {
   fi
   source "$KITCHEN_HOME/kitchen.conf"
   # "command" skips any claude alias, so the flags below are the whole story.
-  command claude "$@" \
+  # KITCHEN_PROJECT names the shared notes file, wherever kitchen is called from later.
+  KITCHEN_PROJECT="$PWD" command claude "$@" \
     --model "$CHEF_MODEL" --effort "$CHEF_EFFORT" \
     --dangerously-skip-permissions \
     --append-system-prompt-file "$KITCHEN_HOME/roles/orchestrator.md" \

@@ -18,20 +18,18 @@ unless a step below tells you to.
 ## Commands
 
     kitchen worker <name> <branch> [medium|high] [--repo <path>]
-                                                   start an Opus worker in a new worktree
-    kitchen designer <name> [medium|high]          start an Opus designer (Figma) in this folder
-    kitchen tell <name> "<one instruction>"        send a prompt to a worker or tester
-    kitchen wait <name>                            wait until it stops working (up to 9 min)
-    kitchen review <worker>                        Codex review of the branch against its base
-    kitchen test <worker>                          start/refresh the Codex tester for the branch
-    kitchen card <worker>                          print the review result and the test card
-    kitchen list                                   show live workers
-    kitchen done <worker>                          clean up after the PR is merged
+                                         start an Opus worker in a new worktree
+    kitchen designer <name> [medium|high]
+                                         start an Opus designer (Figma) in this folder
+    kitchen tell <name> "<instruction>"  send a prompt to a worker or designer
+    kitchen wait <name>                  wait until it stops working (up to 9 min)
+    kitchen check <worker>               Codex review and test of the branch; prints the result
+    kitchen tail <name> [lines]          last lines of an agent's screen
+    kitchen list                         workers and their current state
+    kitchen done <name>                  clean up after the PR is merged
 
-Names: lowercase letters, digits, `-`, `_`; start with a letter; max 28 characters.
-Run `kitchen wait` and `kitchen review` with a Bash timeout of 600000 ms. If `kitchen wait`
-prints `state=working`, run it again. If it prints `state=unknown`, show me the lines it
-printed and stop: do not poll panes yourself or read agent output in a loop.
+Names: lowercase letters, digits, `-`, `_`; start with a letter; max 32 characters.
+Run `kitchen wait` and `kitchen check` with a Bash timeout of 600000 ms.
 
 If this folder is not itself a git repository but contains several repositories
 (one folder per repo), pass `--repo <folder>` to `kitchen worker`. A repository must
@@ -53,28 +51,30 @@ project files yourself.
 3. Give each worker its task with `kitchen tell`. Include: the goal, the files or area it
    owns, the contract, and "open a PR when done".
 4. `kitchen wait <name>` for each worker.
-   - `state=blocked`: do not answer for the worker. Tell me which worker is blocked.
-   - `state=done` or `state=idle`: continue.
-5. Verify. Run `kitchen review <worker>` and `kitchen test <worker>`, then
-   `kitchen wait <worker>-qa`, then `kitchen card <worker>`.
-   If `kitchen review` prints `STILL RUNNING`, wait and run `kitchen card` again later;
-   never start a second review of the same worker while one is running.
-   If `kitchen review` prints `command FAILED`, that is a tool problem: show me
-   the lines and stop.
-6. Decide from the card only:
+   - `state=working`: it is not finished; run `kitchen wait` again.
+   - `state=blocked`: the worker is asking something. Do not answer for it. Tell me which
+     worker is blocked and stop.
+   - `state=idle` or `state=done`: continue.
+   - `state=gone` or `state=unknown`: tell me and stop.
+5. Verify with `kitchen check <worker>`. It reviews and tests the branch's latest commit
+   and prints the review verdict and the test card.
+   - `STILL RUNNING`: run the same command again.
+   - `command FAILED` or `NO CARD`: that is a tool problem, not a finding. Show me the
+     lines and stop.
+6. Decide from that output only:
    - Any P0 or P1 finding, any failing test, or `FLOW: fail` -> send the worker:
-     "Fix the findings in .kitchen/review.txt and .kitchen/card.txt, push, then stop."
-     Then go back to step 4.
+     "Fix the findings in .kitchen/review.txt and .kitchen/card.txt, commit, push, then stop."
+     Then go back to step 4. The next `kitchen check` runs on the new commit.
    - Otherwise the branch is ready.
-   Open a diff yourself only if the card contradicts itself or the change touches
+   Open a diff yourself only if the output contradicts itself or the change touches
    authentication, data deletion, or a database schema.
 7. Stop after 3 fix rounds on the same branch. Report what is still failing instead of looping.
-8. When every branch is ready, report to me: PR links, merge order, and one line per PR.
-   Never merge. After I say a PR is merged, run `kitchen done <worker>`.
+8. When every branch is ready, report to me: PR links (`gh pr list`), merge order, and one
+   line per PR. Never merge. After I say a PR is merged, run `kitchen done <worker>`.
 
 ## Design tasks
 
-Design work has no branch, PR, review, or test step. Use this loop instead:
+Design work has no branch, PR, or check step. Use this loop instead:
 
 1. `kitchen designer <name>`, then `kitchen tell <name> "<Figma link and goal>. Do the inventory step."`
 2. `kitchen wait <name>`, then `kitchen tail <name> 20` to read the inventory.
@@ -84,9 +84,5 @@ Design work has no branch, PR, review, or test step. Use this loop instead:
    After I approve, run `kitchen done <name>`.
 
 Use one designer per Figma file.
-
-If `kitchen worker` says the worker is not ready because of the trust dialog, tell me
-which workspace to open, wait for me to confirm, then continue with `kitchen tell`.
-Do not start the same worker again.
 
 If a command fails, show me the error line and stop. Do not improvise with other tools.

@@ -19,6 +19,16 @@ CODEX_ARGS=(-c "model=$CODEX_MODEL" -c approval_policy=never -c sandbox_mode=dan
 
 die() { echo "kitchen: $*" >&2; exit 1; }
 
+# The orchestrator starts several workers at once. Creating worktrees in one repository
+# and panes in one workspace is done one at a time; two "git worktree add" at the same
+# moment fail on git's own config lock. A lock left by a killed run gives way after two minutes.
+lock() {
+  local i=0
+  until mkdir "$DATA/lock" 2>/dev/null || [ $i -ge 120 ]; do sleep 1; i=$((i+1)); done
+  trap unlock EXIT
+}
+unlock() { rmdir "$DATA/lock" 2>/dev/null || true; }
+
 need_herdr() { [ "${HERDR_ENV:-}" = 1 ] || die "run this inside Herdr (start 'herdr' first)"; }
 
 valid_name() {
@@ -32,10 +42,25 @@ load() {
   . "$STATE/$1"
 }
 
-# Open a folder as a new Herdr workspace; print "<workspace_id> <pane_id>".
-open_workspace() {
-  herdr workspace create --cwd "$1" --label "$2" --no-focus \
-    | jq -er '"\(.result.workspace.workspace_id) \(.result.root_pane.pane_id)"'
+# A project has two Herdr workspaces: "<project> workers" and "<project> checks". Every
+# worker has one pane in the first, and its reviews and tests run in one pane in the second.
+# new_pane <workspace label> <cwd> <pane label> prints the id of a new pane there.
+# Call it with the lock held.
+new_pane() {
+  local space=$1 cwd=$2 label=$3 ws pane target
+  ws=$(herdr workspace list | jq -r --arg l "$space" 'first(.result.workspaces[] | select(.label == $l) | .workspace_id)')
+  if [ -z "$ws" ]; then
+    pane=$(herdr workspace create --cwd "$cwd" --label "$space" --no-focus | jq -er '.result.root_pane.pane_id') || return 1
+  else
+    # Split the largest pane across its longer side; a terminal cell is about twice as
+    # tall as it is wide. Four panes end up as a two-by-two grid.
+    target=$(herdr pane list --workspace "$ws" | jq -er '.result.panes[0].pane_id') || return 1
+    target=$(herdr pane layout --pane "$target" | jq -er '.result.layout.panes | max_by(.rect.width * .rect.height)
+      | "\(.pane_id) \(if .rect.width >= .rect.height * 2 then "right" else "down" end)"') || return 1
+    pane=$(herdr pane split "${target% *}" --direction "${target#* }" --cwd "$cwd" --no-focus | jq -er '.result.pane.pane_id') || return 1
+  fi
+  herdr pane rename "$pane" "$label" >/dev/null 2>&1 || true
+  echo "$pane"
 }
 
 # Start an agent in a pane. A freshly created pane needs a moment before its shell is
@@ -71,19 +96,28 @@ cmd_worker() {
   valid_name "$name"
   [ -e "$STATE/$name" ] && die "worker '$name' already exists (kitchen list)"
 
-  local top repo base dir ids
+  local top repo base dir pane project new=1
+  project=$(basename "${KITCHEN_PROJECT:-$PWD}")
   top=$(git -C "${repo_arg:-.}" rev-parse --show-toplevel 2>/dev/null) \
     || die "'${repo_arg:-$PWD}' is not a git repository. Run inside a repository or pass --repo <path>."
   git -C "$top" rev-parse --verify --quiet HEAD >/dev/null \
     || die "repository $top has no commits yet. It needs an initial commit pushed to origin first."
   # The main checkout, even when called from a worktree.
   repo=$(dirname "$(git -C "$top" rev-parse --path-format=absolute --git-common-dir)")
+  lock
   git -C "$repo" fetch --quiet origin || die "git fetch failed"
   base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
   dir="$WT/$(basename "$repo")--$name"
 
-  git -C "$repo" worktree add --quiet -b "$branch" "$dir" "$base" >&2 \
-    || die "could not create worktree (does branch '$branch' already exist?)"
+  # A branch that already exists, here or on origin, is continued instead of created.
+  if git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null \
+      || git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
+    new=0
+    git -C "$repo" worktree add --quiet "$dir" "$branch" >&2 \
+      || die "could not create a worktree for the existing branch '$branch' (is it checked out somewhere else?)"
+  else
+    git -C "$repo" worktree add --quiet -b "$branch" "$dir" "$base" >&2 || die "could not create the worktree"
+  fi
 
   # Untracked env files do not follow a worktree; copy them from the main checkout.
   local f
@@ -93,7 +127,7 @@ cmd_worker() {
   # Shared notes: one file per project (the folder chef was started in), linked into
   # every worktree so workers of different repositories can leave facts for each other.
   local notes
-  notes="$DATA/notes/$(basename "${KITCHEN_PROJECT:-$PWD}").md"
+  notes="$DATA/notes/$project.md"
   mkdir -p "$DATA/notes" "$dir/.kitchen"
   [ -f "$notes" ] || echo "# Shared notes (newest at the bottom)" > "$notes"
   ln -sf "$notes" "$dir/.kitchen/notes.md"
@@ -101,24 +135,27 @@ cmd_worker() {
   local exclude="$repo/.git/info/exclude"
   grep -qx '.kitchen/' "$exclude" 2>/dev/null || { mkdir -p "$repo/.git/info"; echo '.kitchen/' >> "$exclude"; }
 
-  if ! ids=$(open_workspace "$dir" "$name"); then
-    git -C "$repo" worktree remove --force "$dir"; git -C "$repo" branch -q -D "$branch"
-    die "could not open a Herdr workspace; nothing was left behind"
+  if ! pane=$(new_pane "$project workers" "$dir" "$name"); then
+    git -C "$repo" worktree remove --force "$dir"
+    [ $new = 0 ] || git -C "$repo" branch -q -D "$branch"
+    die "could not open a Herdr pane; nothing was left behind"
   fi
+  unlock
   {
+    printf 'PROJECT=%q\n' "$project"
     printf 'REPO=%q\n' "$repo"
     printf 'DIR=%q\n' "$dir"
     printf 'BRANCH=%q\n' "$branch"
     printf 'BASE=%q\n' "$base"
-    printf 'WS=%q\n' "${ids%% *}"
+    printf 'PANE=%q\n' "$pane"
   } > "$STATE/$name"
 
-  start_agent "$name" "${ids##* }" \
+  start_agent "$name" "$pane" \
       --model "$WORKER_MODEL" --effort "$effort" \
       --dangerously-skip-permissions \
       --append-system-prompt-file "$KITCHEN_HOME/roles/worker.md" \
       --disallowedTools "Agent" \
-    || die "worker '$name' is not ready (Herdr's error is above). If the error is agent_not_ready, Claude Code is asking whether to trust the folder, which happens when the main repository $repo has never been opened in Claude Code. Ask the user to open the '$name' workspace in Herdr and choose 'Yes, I trust this folder', then continue with 'kitchen tell $name ...'. For any other error run 'kitchen done $name --force' and try again."
+    || die "worker '$name' is not ready (Herdr's error is above). If the error is agent_not_ready, Claude Code is asking whether to trust the folder, which happens when the main repository $repo has never been opened in Claude Code. Ask the user to open the '$name' pane of the '$project workers' workspace in Herdr and choose 'Yes, I trust this folder', then continue with 'kitchen tell $name ...'. For any other error run 'kitchen done $name --force' and try again."
 
   echo "worker=$name model=$WORKER_MODEL effort=$effort branch=$branch base=$base"
 }
@@ -126,22 +163,26 @@ cmd_worker() {
 cmd_designer() {
   need_herdr
   [ $# -ge 1 ] || die "usage: kitchen designer <name> [medium|high]"
-  local name=$1 effort=${2:-$DESIGNER_EFFORT} ids
+  local name=$1 effort=${2:-$DESIGNER_EFFORT} pane project
+  project=$(basename "${KITCHEN_PROJECT:-$PWD}")
   valid_name "$name"
   [ -e "$STATE/$name" ] && die "'$name' already exists (kitchen list)"
-  ids=$(open_workspace "$PWD" "$name") || die "could not open a Herdr workspace"
+  lock
+  pane=$(new_pane "$project workers" "$PWD" "$name") || die "could not open a Herdr pane"
+  unlock
   {
     printf 'KIND=designer\n'
+    printf 'PROJECT=%q\n' "$project"
     printf 'DIR=%q\n' "$PWD"
     printf 'BRANCH=%q\n' "(design, no branch)"
-    printf 'WS=%q\n' "${ids%% *}"
+    printf 'PANE=%q\n' "$pane"
   } > "$STATE/$name"
-  start_agent "$name" "${ids##* }" \
+  start_agent "$name" "$pane" \
       --model "$WORKER_MODEL" --effort "$effort" \
       --dangerously-skip-permissions \
       --append-system-prompt-file "$KITCHEN_HOME/roles/designer.md" \
       --disallowedTools "Agent" \
-    || die "designer '$name' did not start (Herdr's error is above). Look at its workspace in Herdr, then run 'kitchen done $name' and try again."
+    || die "designer '$name' did not start (Herdr's error is above). Look at its pane in the '$project workers' workspace, then run 'kitchen done $name' and try again."
   echo "designer=$name model=$WORKER_MODEL effort=$effort dir=$PWD"
 }
 
@@ -170,17 +211,16 @@ cmd_tail() {
   herdr agent read "$1" --source recent-unwrapped --lines "${2:-30}"
 }
 
-# The pane next to the worker where checks run. Created on first use and again
+# The worker's pane in the "<project> checks" workspace. Created on first use and again
 # whenever it has been closed.
 check_pane() {
-  local name=$1 wpane
+  local name=$1
   if [ -n "${CPANE:-}" ] && herdr pane get "$CPANE" 2>/dev/null | jq -e '.result' >/dev/null 2>&1; then
     echo "$CPANE"; return 0
   fi
-  wpane=$(agent_field "$name" pane_id)
-  [ -n "$wpane" ] || die "worker '$name' is not running in Herdr"
-  CPANE=$(herdr pane split "$wpane" --direction right --cwd "$DIR" --no-focus | jq -er '.result.pane.pane_id') \
-    || die "could not split the worker's pane"
+  lock
+  CPANE=$(new_pane "$PROJECT checks" "$DIR" "$name") || die "could not open a pane for the check"
+  unlock
   printf 'CPANE=%q\n' "$CPANE" >> "$STATE/$name"
   sleep 3                                         # let the new shell finish starting
   echo "$CPANE"
@@ -207,7 +247,7 @@ cmd_check() {
     herdr pane run "$pane" "$(printf '%q _check %q %q' "$KITCHEN_HOME/bin/kitchen" "$DIR" "$BASE")" >/dev/null \
       || die "could not start the check in pane $pane"
     while [ ! -f "$k/check.pid" ] && [ ! -f "$k/check.done" ] && [ $i -lt 20 ]; do sleep 2; i=$((i+1)); done
-    [ -f "$k/check.pid" ] || [ -f "$k/check.done" ] || die "the check did not start; look at the right-hand pane of the '$name' workspace"
+    [ -f "$k/check.pid" ] || [ -f "$k/check.done" ] || die "the check did not start; look at the '$name' pane of the '$PROJECT checks' workspace"
   fi
 
   while [ ! -f "$k/check.done" ] && [ $i -lt 260 ]; do sleep 2; i=$((i+1)); done
@@ -269,7 +309,7 @@ cmd_list() {
 
 cmd_done() {
   [ $# -ge 1 ] || die "usage: kitchen done <worker> [--force]"
-  local name=$1 force=${2:-} w pr=""
+  local name=$1 force=${2:-} p pr=""
   load "$name"
   if [ "${KIND:-}" != designer ] && [ "$force" != "--force" ]; then
     pr=$(cd "$REPO" && gh pr view "$BRANCH" --json state -q .state 2>/dev/null || true)
@@ -278,9 +318,9 @@ cmd_done() {
     [ -z "$(git -C "$DIR" status --porcelain 2>/dev/null)" ] \
       || die "'$name' has uncommitted changes in $DIR. Nothing was removed. To throw them away: kitchen done $name --force"
   fi
-  # RWS and QWS are workspaces that older versions of kitchen opened.
-  for w in "${WS:-}" "${CWS:-}" "${RWS:-}" "${QWS:-}"; do
-    if [ -n "$w" ]; then herdr workspace close "$w" >/dev/null 2>&1 || true; fi
+  # Closing the last pane of a workspace closes the workspace too.
+  for p in "${PANE:-}" "${CPANE:-}"; do
+    if [ -n "$p" ]; then herdr pane close "$p" >/dev/null 2>&1 || true; fi
   done
   rm -f "$STATE/$name"
   if [ "${KIND:-}" = designer ]; then echo "removed designer $name"; return 0; fi

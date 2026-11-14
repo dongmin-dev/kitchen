@@ -9,9 +9,11 @@ chef() {
     return 1
   fi
   source "$KITCHEN_HOME/kitchen.conf"
-  claude "$@" \
+  # "command" skips any claude alias, so the flags below are the whole story.
+  command claude "$@" \
     --model "$CHEF_MODEL" --effort "$CHEF_EFFORT" \
+    --dangerously-skip-permissions \
     --append-system-prompt-file "$KITCHEN_HOME/roles/orchestrator.md" \
-    --allowedTools "Bash(kitchen *)" "Bash(herdr agent *)" "Bash(git status*)" "Bash(git log*)" "Bash(git diff*)" "Bash(gh pr view*)" "Bash(gh pr list*)" "Bash(gh issue *)" \
-    --disallowedTools "Agent" "Edit" "Write" "NotebookEdit" "mcp__*"
+    --strict-mcp-config \
+    --tools "$CHEF_TOOLS"
 }

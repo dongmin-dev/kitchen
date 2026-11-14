@@ -357,6 +357,29 @@ cmd_doctor() {
   else
     echo "note     Codex has no Playwright MCP; browser flow checks will be skipped"
   fi
+  if command -v codex >/dev/null 2>&1 && codex login status >/dev/null 2>&1; then
+    echo "ok       Codex is logged in"
+  else
+    echo "MISSING  Codex login (run: codex login)"; ok=0
+  fi
+  # Claude Code asks once per repository whether to trust it, and a worker cannot answer.
+  # Look at the repository this folder is in, or at the repositories directly inside it.
+  local d top
+  if top=$(git rev-parse --show-toplevel 2>/dev/null); then
+    set -- "$(dirname "$(git -C "$top" rev-parse --path-format=absolute --git-common-dir)")"
+  else
+    set --
+    for d in "$PWD"/*/; do
+      if [ -e "$d.git" ]; then set -- "$@" "${d%/}"; fi
+    done
+  fi
+  for d in "$@"; do
+    if jq -e --arg p "$d" '.projects[$p].hasTrustDialogAccepted == true' "$HOME/.claude.json" >/dev/null 2>&1; then
+      echo "ok       trusted in Claude Code: $d"
+    else
+      echo "note     not yet trusted in Claude Code: $d (run 'claude' there once and accept, or its workers will stop at the trust question)"
+    fi
+  done
   echo "data:      $DATA (worktrees, notes, and worker records)"
   [ $ok = 1 ] && echo "All required pieces are present." || { echo "Fix the MISSING lines above."; exit 1; }
 }

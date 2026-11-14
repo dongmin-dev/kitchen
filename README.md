@@ -60,5 +60,11 @@ Open a new shell, start `herdr`, and run `kitchen doctor` inside it.
 Open each repository once with `claude` and accept the trust dialog. Worktrees of a
 trusted repository start without asking.
 
+`kitchen doctor` also reports whether the repository you are in, or the repositories
+directly inside the current folder, are trusted.
+
+Why kitchen works this way is in [docs/design.md](docs/design.md). What it relies on in
+Herdr, Claude Code, and Codex is in [docs/tool-contracts.md](docs/tool-contracts.md).
+
 Update with `git -C ~/Agents/kitchen pull`. Remove by deleting the folder and the
 `source` line.

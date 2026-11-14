@@ -8,6 +8,8 @@ You implement one task inside this folder. It is a git worktree with its own bra
   including workers in other repositories. Read it before you start. Whenever you decide
   or discover something another worker must know (an API shape, a field name, a port, an
   env variable, a gotcha), append one line: `- [your branch] <fact>`. Facts only, no status.
+  Append with `echo '- [your branch] <fact>' >> .kitchen/notes.md`, not with an editing
+  tool: other workers write to the same file at the same time.
 - First make the project runnable here: install dependencies if they are missing.
 - Write or update automated tests for what you change, and run the whole test suite.
 - When the task is done: commit, push the branch, and open a PR with `gh pr create --fill`

@@ -38,7 +38,10 @@ codex-cli 0.167.2.
 - `herdr agent wait NAME [--until STATUS] [--timeout MS]` blocks until the agent stops
   working or the timeout passes.
 - `herdr agent read NAME --source recent-unwrapped --lines N` returns the pane's text.
-  In a narrow pane much of it is interface decoration.
+  Much of it is interface decoration, and when the pane is scrolled up it is old text.
+  kitchen uses it only as a fallback.
+- `herdr agent get NAME` also has `.result.agent.agent_session.value`, the id of the
+  Claude Code session running in the pane.
 - `herdr <group>` with no subcommand lists that group's commands; `herdr api schema
   --json` describes every request and response.
 
@@ -57,6 +60,10 @@ codex-cli 0.167.2.
   shown in `claude --help`.
 - `--tools`, `--allowedTools`, and `--disallowedTools` take several values and will
   swallow a prompt placed after them; put a prompt first.
+- A session is recorded in `~/.claude/projects/<folder>/<session id>.jsonl`, one JSON
+  object per line. Assistant turns have `type: "assistant"` and
+  `message.content[]` items; the ones with `type: "text"` are what the agent said.
+  `kitchen tail` reads the last of these.
 - An alias named `claude` is expanded by zsh when a function is defined. `chef` calls
   `command claude` to avoid that.
 
@@ -91,7 +98,10 @@ codex-cli 0.167.2.
 - `gh pr view BRANCH --json state -q .state` prints `OPEN`, `MERGED`, or `CLOSED`, and
   fails when the branch has no pull request.
 
+- A designer started with `kitchen designer` loads the Figma skill, reads a file, and
+  writes to it (variables, text styles, components, frames) through the Figma MCP
+  server configured in Claude Code.
+
 ## Not yet observed on the real tools
 
-- A complete `kitchen designer` run.
 - A single check that runs longer than nine minutes (covered by the stub tests only).

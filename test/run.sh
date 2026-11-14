@@ -84,6 +84,14 @@ check "tests again after a failed test"    test "$(calls 'codex [exec]')" = $((t
 check "keeps the review that succeeded"    test "$(calls 'codex [review]')" = "$n"
 check "prints both results then"           bash -c 'grep -qF "[P1]" <<<"$1" && grep -qF "TESTS: 2/2" <<<"$1"' _ "$out"
 
+echo "# tail"
+mkdir -p "$T/home/.claude/projects/p"
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"first"}]}}' \
+  '{"type":"user","message":{"content":"x"}}' \
+  '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"t"},{"type":"text","text":"last message"}]}}' \
+  > "$T/home/.claude/projects/p/sess1.jsonl"
+check "prints the agent's last message"    test "$(HOME="$T/home" "$K" tail w1)" = "last message"
+
 echo "# done"
 out=$("$K" "done" w1 2>&1)
 check "refuses without a merged PR"        has "$out" "not merged"

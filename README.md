@@ -19,7 +19,7 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 | `kitchen tell <name> "<instruction>"` | Send a prompt to a worker or designer |
 | `kitchen wait <name>` | Wait until the agent stops working, print its state |
 | `kitchen check <worker>` | Codex review against the base branch, then a Codex tester that runs the test suite and walks the user flow with Playwright; prints the verdict and a short test card |
-| `kitchen tail <name> [lines]` | Last lines of an agent's screen |
+| `kitchen tail <name> [lines]` | The agent's last message (first lines of it) |
 | `kitchen list` | Workers and their current state |
 | `kitchen done <name> [--force]` | After the pull request is merged: close the panes, remove the worktree and the branch |
 | `kitchen doctor` | Check that everything kitchen needs is installed |

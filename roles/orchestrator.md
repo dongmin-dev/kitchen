@@ -25,7 +25,7 @@ unless a step below tells you to.
     kitchen tell <name> "<instruction>"  send a prompt to a worker or designer
     kitchen wait <name>                  wait until it stops working (up to 9 min)
     kitchen check <worker>               Codex review and test of the branch; prints the result
-    kitchen tail <name> [lines]          last lines of an agent's screen
+    kitchen tail <name> [lines]          first lines of the agent's last message
     kitchen list                         workers and their current state
     kitchen done <name>                  clean up after the PR is merged
 

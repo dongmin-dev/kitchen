@@ -60,8 +60,9 @@ project files yourself.
 5. Verify with `kitchen check <worker>`. It reviews and tests the branch's latest commit
    and prints the review verdict and the test card.
    - `STILL RUNNING`: run the same command again.
-   - `command FAILED` or `NO CARD`: that is a tool problem, not a finding. Show me the
-     lines and stop.
+   - `command FAILED` or `NO CARD`: that is a tool problem, not a finding (for example
+     Codex has hit its usage limit). Show me the lines and stop. When I say it is
+     resolved, run the same command again; it redoes only the part that broke.
 6. Decide from that output only:
    - Any P0 or P1 finding, any failing test, or `FLOW: fail` -> send the worker:
      "Fix the findings in .kitchen/review.txt and .kitchen/card.txt, commit, push, then stop."

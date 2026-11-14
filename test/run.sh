@@ -72,6 +72,17 @@ check "reuses the check pane"              test "$(calls '[repo checks]')" = 1
 git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fix2
 out=$(STUB_FAIL_REVIEW=1 "$K" check w1 2>&1)
 check "reports a failed review as a tool error" has "$out" "command FAILED (exit 3)"
+n=$(calls 'codex [review]')
+"$K" check w1 >/dev/null 2>&1
+check "reviews again after a failed review" test "$(calls 'codex [review]')" = $((n+1))
+git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fix3
+out=$(STUB_FAIL_TEST=1 "$K" check w1 2>&1)
+check "reports a missing card as a tool error" has "$out" "NO CARD (exit 1)"
+n=$(calls 'codex [review]'); t=$(calls 'codex [exec]')
+out=$("$K" check w1 2>&1)
+check "tests again after a failed test"    test "$(calls 'codex [exec]')" = $((t+1))
+check "keeps the review that succeeded"    test "$(calls 'codex [review]')" = "$n"
+check "prints both results then"           bash -c 'grep -qF "[P1]" <<<"$1" && grep -qF "TESTS: 2/2" <<<"$1"' _ "$out"
 
 echo "# done"
 out=$("$K" "done" w1 2>&1)

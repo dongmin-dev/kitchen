@@ -228,7 +228,9 @@ check_pane() {
 
 # Review and test one commit of a worker's branch, then print the result.
 # A commit is checked once: calling this again for the same commit waits for the run
-# in progress, or prints the result that is already there.
+# in progress, or prints the result that is already there. A run that broke (Codex
+# failed, or the tester wrote no card) is not a result: calling this again redoes the
+# part that broke.
 cmd_check() {
   need_herdr
   [ $# -eq 1 ] || die "usage: kitchen check <worker>"
@@ -241,8 +243,9 @@ cmd_check() {
 
   if [ -f "$k/check.pid" ] && kill -0 "$(cat "$k/check.pid")" 2>/dev/null; then
     :                                             # a check is running; wait for it
-  elif [ "$(cat "$k/check.done" 2>/dev/null)" != "$head" ]; then
-    rm -f "$k/check.done" "$k/check.pid" "$k/review.txt" "$k/card.txt"
+  elif [ "$(cat "$k/check.done" 2>/dev/null)" != "$head" ] \
+      || [ "$(cat "$k/review.done" 2>/dev/null)" != "$head" ] || [ ! -f "$k/card.txt" ]; then
+    rm -f "$k/check.done" "$k/check.pid" "$k/card.txt"
     pane=$(check_pane "$name") || exit 1
     herdr pane run "$pane" "$(printf '%q _check %q %q' "$KITCHEN_HOME/bin/kitchen" "$DIR" "$BASE")" >/dev/null \
       || die "could not start the check in pane $pane"
@@ -282,11 +285,16 @@ cmd__check() {
   head=$(git rev-parse HEAD)
   set +e
   git fetch --quiet origin
-  echo "kitchen: reviewing $head against $base"
-  # codex review prints the verdict on stdout and the whole run on stderr.
-  codex review "${CODEX_ARGS[@]}" -c "model_reasoning_effort=$REVIEW_EFFORT" --base "$base" \
-    > "$k/review.txt" 2> >(tee "$k/review.log" >&2)
-  echo $? > "$k/review.exit"
+  if [ "$(cat "$k/review.done" 2>/dev/null)" = "$head" ]; then
+    echo "kitchen: $head is already reviewed"
+  else
+    echo "kitchen: reviewing $head against $base"
+    # codex review prints the verdict on stdout and the whole run on stderr.
+    codex review "${CODEX_ARGS[@]}" -c "model_reasoning_effort=$REVIEW_EFFORT" --base "$base" \
+      > "$k/review.txt" 2> >(tee "$k/review.log" >&2)
+    echo $? > "$k/review.exit"
+    if [ "$(cat "$k/review.exit")" = 0 ]; then echo "$head" > "$k/review.done"; fi
+  fi
   echo "kitchen: testing $head"
   codex exec "${CODEX_ARGS[@]}" -c "model_reasoning_effort=$TESTER_EFFORT" \
     "Read $KITCHEN_HOME/roles/tester.md and follow it exactly. The base branch is $base." 2>&1 | tee "$k/test.log"

@@ -22,4 +22,5 @@ Steps
        FLOW NOTES: <one line per problem a user would notice, or "none">
        SHOTS: <paths of saved screenshots, or "none">
 
-4. Reply with the single word `done`.
+4. Reply with the single word `done`. Nobody can answer questions; if something is
+   unclear, decide yourself and note it in the card.

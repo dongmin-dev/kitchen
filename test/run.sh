@@ -17,7 +17,7 @@ calls() { grep -cF -- "$1" "$STUB_LOG" || true; }
 # A repository with an origin, the way kitchen expects it.
 git init -q --bare "$T/origin.git"
 git init -q -b main "$T/repo"
-cd "$T/repo"
+cd "$T/repo" || exit 1
 git -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git remote add origin "$T/origin.git"; git push -q -u origin main; git remote set-head origin main
 W="$T/data/worktrees/repo--w1"
@@ -56,10 +56,10 @@ out=$(STUB_FAIL_REVIEW=1 "$K" check w1 2>&1)
 check "reports a failed review as a tool error" has "$out" "command FAILED (exit 3)"
 
 echo "# done"
-out=$("$K" done w1 2>&1)
+out=$("$K" "done" w1 2>&1)
 check "refuses without a merged PR"        has "$out" "not merged"
 check "keeps the worktree then"            test -d "$W"
-out=$(STUB_PR_STATE=MERGED "$K" done w1 2>&1)
+out=$(STUB_PR_STATE=MERGED "$K" "done" w1 2>&1)
 check "removes a merged worker"            has "$out" "merged branch feat/x"
 check "removes the worktree"               test ! -e "$W"
 check "removes the branch"                 bash -c "! git -C '$T/repo' rev-parse --verify -q feat/x"
@@ -67,14 +67,14 @@ check "removes the record"                 test ! -e "$T/data/state/w1"
 
 echo "# done --force"
 "$K" worker w3 feat/k >/dev/null 2>&1
-out=$("$K" done w3 --force 2>&1)
+out=$("$K" "done" w3 --force 2>&1)
 check "removes the worker"                 test ! -e "$T/data/worktrees/repo--w3"
 check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -q feat/k
 
 echo "# records written by older versions"
 "$K" worker w4 feat/old >/dev/null 2>&1
 printf 'RWS=w8\nRPANE=w8:p1\nQWS=w9\n' >> "$T/data/state/w4"
-STUB_PR_STATE=MERGED "$K" done w4 >/dev/null 2>&1
+STUB_PR_STATE=MERGED "$K" "done" w4 >/dev/null 2>&1
 check "closes the old review workspace"    has "$(cat "$STUB_LOG")" "[workspace] [close] [w8]"
 check "closes the old tester workspace"    has "$(cat "$STUB_LOG")" "[workspace] [close] [w9]"
 

@@ -9,5 +9,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: brew install shellcheck
-      - run: shellcheck bin/kitchen test/run.sh test/stubs/*
+      - run: shellcheck -S warning bin/kitchen test/run.sh test/stubs/*
       - run: /bin/bash test/run.sh

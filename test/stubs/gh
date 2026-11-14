@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stub gh: "pr view" prints the state in STUB_PR_STATE, or fails when there is no PR.
+[ -n "${STUB_PR_STATE:-}" ] || exit 1
+echo "$STUB_PR_STATE"

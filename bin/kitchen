@@ -261,6 +261,7 @@ cmd_list() {
   for f in "$STATE"/*; do
     [ -f "$f" ] || continue
     found=1; n=$(basename "$f"); st=$(agent_field "$n" agent_status)
+    # shellcheck disable=SC1090
     ( . "$f"; echo "$n  state=${st:-gone}  branch=$BRANCH  dir=$DIR" )
   done
   [ $found = 1 ] || echo "(no workers)"

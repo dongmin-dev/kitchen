@@ -18,6 +18,10 @@ if [ -d "$KITCHEN_HOME/state" ]; then            # one-time move from the old la
   done
 fi
 
+# Codex runs without approval prompts or a sandbox on every machine, whatever its own
+# config.toml says. Unquoted values are taken as literal strings by "codex -c".
+CODEX_OPEN=(-c approval_policy=never -c sandbox_mode=danger-full-access)
+
 die() { echo "kitchen: $*" >&2; exit 1; }
 
 need_herdr() { [ "${HERDR_ENV:-}" = 1 ] || die "run this inside Herdr (start 'herdr' first)"; }
@@ -158,10 +162,9 @@ cmd_worker() {
 
   start_agent "$name" claude "$pane" \
       --model "$WORKER_MODEL" --effort "$effort" \
-      --permission-mode "$WORKER_PERMISSION_MODE" \
+      --dangerously-skip-permissions \
       --append-system-prompt-file "$KITCHEN_HOME/roles/worker.md" \
       --add-dir "$DATA/notes" \
-      --allowedTools "${WORKER_ALLOWED[@]}" \
       --disallowedTools "Agent" \
     || die "worker '$name' is not ready (Herdr's error is above). Most likely it is waiting at Claude Code's trust dialog. Ask the user to open the '$name' workspace in Herdr and confirm 'Yes, I trust this folder'. The worker then starts with the right settings: continue with 'kitchen tell $name ...'. Do not create it again."
 
@@ -174,7 +177,6 @@ cmd_designer() {
   local name=$1 effort=${2:-${DESIGNER_EFFORT:-high}} dir ids ws pane
   valid_name "$name"
   [ -e "$STATE/$name" ] && die "'$name' already exists (kitchen list)"
-  if [ -z "${DESIGNER_ALLOWED+x}" ]; then DESIGNER_ALLOWED=("mcp__*"); fi
   dir=$PWD
   ids=$(open_workspace "$dir" "$name"); ws=${ids%% *}; pane=${ids##* }
   {
@@ -185,9 +187,8 @@ cmd_designer() {
   } > "$STATE/$name"
   start_agent "$name" claude "$pane" \
       --model "$WORKER_MODEL" --effort "$effort" \
-      --permission-mode "$WORKER_PERMISSION_MODE" \
+      --dangerously-skip-permissions \
       --append-system-prompt-file "$KITCHEN_HOME/roles/designer.md" \
-      --allowedTools "${DESIGNER_ALLOWED[@]}" \
       --disallowedTools "Agent" \
     || die "designer '$name' did not start (Herdr's error is above). Look at its workspace in Herdr, then run 'kitchen done $name' and try again."
   echo "designer=$name model=$WORKER_MODEL effort=$effort dir=$dir"
@@ -230,7 +231,7 @@ cmd_review() {
   mkdir -p "$DIR/.kitchen"
   [ -n "${RPANE:-}" ] || ensure_check "$name"
   rm -f "$DIR/.kitchen/review.txt" "$DIR/.kitchen/review.exit"
-  for a in "${REVIEW_ARGS[@]}"; do args="$args $(printf '%q' "$a")"; done
+  for a in "${REVIEW_ARGS[@]}" "${CODEX_OPEN[@]}"; do args="$args $(printf '%q' "$a")"; done
   herdr pane run "$RPANE" "clear; git fetch --quiet origin; codex review$args --base $(printf '%q' "$BASE") > .kitchen/review.txt 2>&1; echo \$? > .kitchen/review.exit; echo review done" >/dev/null \
     || die "could not start the review pane"
   # The exit file appears only when this run has finished.
@@ -262,7 +263,7 @@ cmd_test() {
   rm -f "$DIR/.kitchen/card.txt"
   if [ -z "${QWS:-}${QA:-}" ]; then               # tester not started yet
     [ -n "${QPANE:-}" ] || ensure_check "$name"
-    start_agent "$qa" codex "$QPANE" "${TESTER_ARGS[@]}" \
+    start_agent "$qa" codex "$QPANE" "${TESTER_ARGS[@]}" "${CODEX_OPEN[@]}" \
       || die "tester '$qa' did not start (Herdr's error is above). Look at the '$name-check' workspace in Herdr."
     echo 'QA=1' >> "$STATE/$name"
   fi

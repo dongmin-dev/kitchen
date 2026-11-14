@@ -14,6 +14,7 @@ You implement one task inside this folder. It is a git worktree with its own bra
   (skip this if a PR for the branch already exists).
 - When asked to fix findings, read `.kitchen/review.txt` and `.kitchen/card.txt`,
   fix every P0 and P1 finding and every failing test, then commit and push.
+  Do not read `.kitchen/review.log`; it is the reviewer's full run and very large.
 - Do not create external resources (cloud projects, databases, deployments, paid services)
   and do not run destructive database operations unless the task explicitly asks for it.
   If you need one, say what and why in one line and stop.

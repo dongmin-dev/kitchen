@@ -68,3 +68,7 @@ Herdr, Claude Code, and Codex is in [docs/tool-contracts.md](docs/tool-contracts
 
 Update with `git -C ~/Agents/kitchen pull`. Remove by deleting the folder and the
 `source` line.
+
+## License
+
+[MIT](LICENSE)

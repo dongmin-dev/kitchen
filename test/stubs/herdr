@@ -1,10 +1,19 @@
 #!/bin/bash
 # Stub herdr: logs every call and answers with the response shapes of herdr 0.9.5.
+# It remembers the labels of the workspaces it created, one per line; line N is workspace wN.
 { printf 'herdr'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+WS="$STUB_LOG.workspaces"; touch "$WS"
+arg() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
 case "$1 $2" in
+  "workspace list")   jq -Rn '{result:{workspaces:[inputs] | to_entries | map({workspace_id:"w\(.key+1)", label:.value})}}' < "$WS" ;;
   "workspace create") [ -z "${STUB_FAIL_WORKSPACE:-}" ] || { echo '{"error":{"code":"boom","message":"boom"}}' >&2; exit 1; }
-                      echo '{"result":{"workspace":{"workspace_id":"w1"},"root_pane":{"pane_id":"w1:p1"}}}' ;;
-  "pane split")       echo '{"result":{"pane":{"pane_id":"w1:p2"}}}' ;;
+                      arg --label "$@" >> "$WS"; n=$(wc -l < "$WS" | tr -d ' ')
+                      echo '{"result":{"workspace":{"workspace_id":"w'"$n"'"},"root_pane":{"pane_id":"w'"$n"':p1"}}}' ;;
+  "pane list")        echo '{"result":{"panes":[{"pane_id":"'"$4"':p1"}]}}' ;;
+  "pane layout")      echo '{"result":{"layout":{"panes":[{"pane_id":"'"$4"'","rect":{"width":100,"height":30}}]}}}' ;;
+  "pane split")       [ -z "${STUB_FAIL_WORKSPACE:-}" ] || { echo '{"error":{"code":"boom","message":"boom"}}' >&2; exit 1; }
+                      echo x >> "$STUB_LOG.splits"
+                      echo '{"result":{"pane":{"pane_id":"'"${3%%:*}"':s'"$(wc -l < "$STUB_LOG.splits" | tr -d ' ')"'"}}}' ;;
   "pane get")         echo '{"result":{"pane":{"pane_id":"'"$3"'"}}}' ;;
   "pane run")         bash -c "$4" >/dev/null 2>&1 ;;   # the real pane runs it asynchronously
   "agent get")        echo '{"result":{"agent":{"agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"}}}' ;;

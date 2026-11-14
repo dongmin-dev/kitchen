@@ -14,22 +14,27 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 
 | Command | What it does |
 |---|---|
-| `kitchen worker <name> <branch> [medium\|high] [--repo <path>]` | New git worktree and branch, new Herdr workspace, Opus worker started in it |
+| `kitchen worker <name> <branch> [medium\|high] [--repo <path>]` | New git worktree and branch (an existing branch is continued), Opus worker started in a new pane |
 | `kitchen designer <name> [medium\|high]` | Opus designer for Figma work in the current folder |
 | `kitchen tell <name> "<instruction>"` | Send a prompt to a worker or designer |
 | `kitchen wait <name>` | Wait until the agent stops working, print its state |
 | `kitchen check <worker>` | Codex review against the base branch, then a Codex tester that runs the test suite and walks the user flow with Playwright; prints the verdict and a short test card |
 | `kitchen tail <name> [lines]` | Last lines of an agent's screen |
 | `kitchen list` | Workers and their current state |
-| `kitchen done <name> [--force]` | After the pull request is merged: close the workspace, remove the worktree and the branch |
+| `kitchen done <name> [--force]` | After the pull request is merged: close the panes, remove the worktree and the branch |
 | `kitchen doctor` | Check that everything kitchen needs is installed |
 
 The loop the orchestrator follows is in [`roles/orchestrator.md`](roles/orchestrator.md):
 plan, start workers in parallel, wait, check, send findings back, and stop when a
 decision is needed or the pull requests are ready. Agents never merge; you do.
 
-`kitchen check` runs in a pane to the right of the worker, so you can watch it. It
-checks a commit once: running it again for the same commit prints the stored result.
+In Herdr a project takes two workspaces next to the orchestrator's own:
+`<project> workers`, with one pane per worker or designer, and `<project> checks`, with
+one pane per worker where its reviews and tests run. Panes are labelled with the worker's
+name and tiled automatically; `<project>` is the folder `chef` was started in.
+
+`kitchen check` checks a commit once: running it again for the same commit prints the
+stored result.
 
 Every agent runs without permission prompts. kitchen passes the flags for that itself.
 

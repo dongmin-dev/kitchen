@@ -31,12 +31,29 @@ check "links the shared notes"             test -L "$W/.kitchen/notes.md"
 check "keeps .kitchen out of git"          grep -qx '.kitchen/' "$T/repo/.git/info/exclude"
 check "starts claude without prompts"      has "$(cat "$STUB_LOG")" "[--dangerously-skip-permissions]"
 check "refuses a duplicate name"           bash -c "! '$K' worker w1 feat/y"
+check "opens the workers workspace"        has "$(cat "$STUB_LOG")" "[--label] [repo workers]"
+check "labels the pane"                    has "$(cat "$STUB_LOG")" "[pane] [rename] [w1:p1] [w1]"
+
+echo "# second worker"
+"$K" worker w5 feat/five >/dev/null 2>&1
+check "shares the workers workspace"       test "$(calls '[workspace] [create]')" = 1
+check "gets its own pane"                  grep -q '^PANE=w1:s1$' "$T/data/state/w5"
+check "splits the wide pane to the right"  has "$(cat "$STUB_LOG")" "[pane] [split] [w1:p1] [--direction] [right]"
+"$K" "done" w5 --force >/dev/null 2>&1
+check "closes its pane when done"          has "$(cat "$STUB_LOG")" "[pane] [close] [w1:s1]"
+
+echo "# existing branch"
+git -C "$T/repo" branch feat/kept
+out=$("$K" worker w6 feat/kept 2>&1)
+check "continues an existing branch"       test "$(git -C "$T/data/worktrees/repo--w6" branch --show-current)" = feat/kept
+"$K" "done" w6 --force >/dev/null 2>&1
 
 echo "# worker rollback"
 out=$(STUB_FAIL_WORKSPACE=1 "$K" worker w2 feat/z 2>&1)
 check "reports the failure"                has "$out" "nothing was left behind"
 check "leaves no worktree"                 test ! -e "$T/data/worktrees/repo--w2"
 check "leaves no branch"                   bash -c "! git -C '$T/repo' rev-parse --verify -q feat/z"
+check "releases the lock"                  test ! -e "$T/data/lock"
 
 echo "# check"
 out=$("$K" check w1 2>&1)
@@ -44,13 +61,14 @@ check "prints the verdict"                 has "$out" "[P1] Off-by-one"
 check "prints the card"                    has "$out" "TESTS: 2/2"
 check "keeps the transcript out"           bash -c "! grep -q noise '$W/.kitchen/review.txt'"
 check "saves the transcript"               grep -q noise "$W/.kitchen/review.log"
-check "opens the pane once"                test "$(calls '[pane] [split]')" = 1
+check "opens the checks workspace"         has "$(cat "$STUB_LOG")" "[--label] [repo checks]"
+check "opens the check pane once"          test "$(calls '[repo checks]')" = 1
 "$K" check w1 >/dev/null 2>&1
 check "does not repeat for the same commit" test "$(calls 'codex [review]')" = 1
 git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fix
 "$K" check w1 >/dev/null 2>&1
 check "runs again for a new commit"        test "$(calls 'codex [review]')" = 2
-check "reuses the pane"                    test "$(calls '[pane] [split]')" = 1
+check "reuses the check pane"              test "$(calls '[repo checks]')" = 1
 git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fix2
 out=$(STUB_FAIL_REVIEW=1 "$K" check w1 2>&1)
 check "reports a failed review as a tool error" has "$out" "command FAILED (exit 3)"
@@ -64,19 +82,14 @@ check "removes a merged worker"            has "$out" "merged branch feat/x"
 check "removes the worktree"               test ! -e "$W"
 check "removes the branch"                 bash -c "! git -C '$T/repo' rev-parse --verify -q feat/x"
 check "removes the record"                 test ! -e "$T/data/state/w1"
+check "closes the worker pane"             has "$(cat "$STUB_LOG")" "[pane] [close] [w1:p1]"
+check "closes the check pane"              has "$(cat "$STUB_LOG")" "[pane] [close] [w2:p1]"
 
 echo "# done --force"
 "$K" worker w3 feat/k >/dev/null 2>&1
 out=$("$K" "done" w3 --force 2>&1)
 check "removes the worker"                 test ! -e "$T/data/worktrees/repo--w3"
 check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -q feat/k
-
-echo "# records written by older versions"
-"$K" worker w4 feat/old >/dev/null 2>&1
-printf 'RWS=w8\nRPANE=w8:p1\nQWS=w9\n' >> "$T/data/state/w4"
-STUB_PR_STATE=MERGED "$K" "done" w4 >/dev/null 2>&1
-check "closes the old review workspace"    has "$(cat "$STUB_LOG")" "[workspace] [close] [w8]"
-check "closes the old tester workspace"    has "$(cat "$STUB_LOG")" "[workspace] [close] [w9]"
 
 echo
 if [ "$fails" = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

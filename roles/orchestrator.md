@@ -18,7 +18,8 @@ unless a step below tells you to.
 ## Commands
 
     kitchen worker <name> <branch> [medium|high] [--repo <path>]
-                                         start an Opus worker in a new worktree
+                                         start an Opus worker in a new worktree; a branch
+                                         that already exists is continued, not recreated
     kitchen designer <name> [medium|high]
                                          start an Opus designer (Figma) in this folder
     kitchen tell <name> "<instruction>"  send a prompt to a worker or designer

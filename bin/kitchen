@@ -230,9 +230,11 @@ cmd_review() {
   load "$name"
   mkdir -p "$DIR/.kitchen"
   [ -n "${RPANE:-}" ] || ensure_check "$name"
-  rm -f "$DIR/.kitchen/review.txt" "$DIR/.kitchen/review.exit"
+  rm -f "$DIR/.kitchen/review.txt" "$DIR/.kitchen/review.log" "$DIR/.kitchen/review.exit"
   for a in "${REVIEW_ARGS[@]}" "${CODEX_OPEN[@]}"; do args="$args $(printf '%q' "$a")"; done
-  herdr pane run "$RPANE" "clear; git fetch --quiet origin; codex review$args --base $(printf '%q' "$BASE") > .kitchen/review.txt 2>&1; echo \$? > .kitchen/review.exit; echo review done" >/dev/null \
+  # codex prints the verdict on stdout and the whole run (prompts, commands, file
+  # contents) on stderr. review.txt is what agents read; review.log is for debugging.
+  herdr pane run "$RPANE" "clear; git fetch --quiet origin; codex review$args --base $(printf '%q' "$BASE") > .kitchen/review.txt 2> .kitchen/review.log; echo \$? > .kitchen/review.exit; echo review done" >/dev/null \
     || die "could not start the review pane"
   # The exit file appears only when this run has finished.
   while [ ! -f "$DIR/.kitchen/review.exit" ] && [ $i -lt 270 ]; do sleep 2; i=$((i+1)); done
@@ -243,14 +245,14 @@ cmd_review() {
 review_status() {
   local code
   if [ ! -f "$1/.kitchen/review.exit" ]; then
-    if [ -f "$1/.kitchen/review.txt" ]; then echo "review: STILL RUNNING (check again with: kitchen card <worker>)"; else echo "review: not started"; fi
+    if [ -f "$1/.kitchen/review.log" ]; then echo "review: STILL RUNNING (check again with: kitchen card <worker>)"; else echo "review: not started"; fi
     return 0
   fi
   code=$(cat "$1/.kitchen/review.exit")
   if [ "$code" = 0 ]; then echo "review: finished"
   else
-    echo "review: command FAILED (exit $code); this is a tool error, not a code finding. First lines:"
-    head -n 8 "$1/.kitchen/review.txt" 2>/dev/null || true
+    echo "review: command FAILED (exit $code); this is a tool error, not a code finding. Last lines of .kitchen/review.log:"
+    tail -n 8 "$1/.kitchen/review.log" 2>/dev/null | cut -c1-300 || true
   fi
 }
 
@@ -278,7 +280,7 @@ cmd_card() {
   load "$1"
   echo "== REVIEW =="
   review_status "$DIR"
-  if [ "$(cat "$DIR/.kitchen/review.exit" 2>/dev/null)" = 0 ]; then tail -n 40 "$DIR/.kitchen/review.txt"; fi
+  if [ "$(cat "$DIR/.kitchen/review.exit" 2>/dev/null)" = 0 ]; then head -n 60 "$DIR/.kitchen/review.txt" | cut -c1-500; fi
   echo "== TEST CARD =="
   if [ -f "$DIR/.kitchen/card.txt" ]; then head -n 30 "$DIR/.kitchen/card.txt"; else echo "(no card yet)"; fi
 }

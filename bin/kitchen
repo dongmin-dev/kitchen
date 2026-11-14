@@ -208,7 +208,19 @@ cmd_wait() {
 cmd_tail() {
   need_herdr
   [ $# -ge 1 ] || die "usage: kitchen tail <name> [lines]"
-  herdr agent read "$1" --source recent-unwrapped --lines "${2:-30}"
+  # The agent's last message, from Claude Code's own record of the session. The screen
+  # is a poor source: it is mostly interface, and it shows old text when scrolled up.
+  local sid f="" text=""
+  sid=$(herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_session.value // empty' 2>/dev/null || true)
+  if [ -n "$sid" ]; then f=$(ls "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -n 1); fi
+  if [ -n "$f" ]; then
+    text=$(jq -rs '[.[] | select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text] | last // empty' "$f" 2>/dev/null || true)
+  fi
+  if [ -n "$text" ]; then
+    echo "$text" | head -n "${2:-30}" | cut -c1-500
+  else
+    herdr agent read "$1" --source recent-unwrapped --lines "${2:-30}"
+  fi
 }
 
 # The worker's pane in the "<project> checks" workspace. Created on first use and again

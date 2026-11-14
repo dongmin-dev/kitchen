@@ -16,6 +16,6 @@ case "$1 $2" in
                       echo '{"result":{"pane":{"pane_id":"'"${3%%:*}"':s'"$(wc -l < "$STUB_LOG.splits" | tr -d ' ')"'"}}}' ;;
   "pane get")         echo '{"result":{"pane":{"pane_id":"'"$3"'"}}}' ;;
   "pane run")         bash -c "$4" >/dev/null 2>&1 ;;   # the real pane runs it asynchronously
-  "agent get")        echo '{"result":{"agent":{"agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"}}}' ;;
+  "agent get")        echo '{"result":{"agent":{"agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1","agent_session":{"value":"sess1"}}}}' ;;
 esac
 exit 0

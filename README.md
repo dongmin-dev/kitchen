@@ -18,7 +18,8 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 | `kitchen designer <name> [medium\|high]` | Opus designer for Figma work in the current folder |
 | `kitchen tell <name> "<instruction>"` | Send a prompt to a worker or designer |
 | `kitchen wait <name>` | Wait until the agent stops working, print its state |
-| `kitchen check <worker>` | Codex review against the base branch, then a Codex tester that runs the test suite and walks the user flow with Playwright; prints the verdict and a short test card |
+| `kitchen check <worker>` | Codex review against the base branch, then a Codex tester that runs the test suite and walks the user flow (web with Playwright, iOS in a simulator); prints the verdict and a short test card |
+| `kitchen sim` | For the tester: the id of this worktree's iOS simulator, created and booted on first use |
 | `kitchen tail <name> [lines]` | The agent's last message (first lines of it) |
 | `kitchen list` | Workers and their current state |
 | `kitchen done <name> [--force]` | After the pull request is merged: close the panes, remove the worktree and the branch |
@@ -56,6 +57,11 @@ Requires `git`, `jq`, `gh` (logged in), `herdr`, `claude`, and `codex`.
     echo 'source ~/Agents/kitchen/kitchen.zsh' >> ~/.zshrc
 
 Open a new shell, start `herdr`, and run `kitchen doctor` inside it.
+
+Optional, for testing iOS apps (native or Expo): Xcode with an iOS simulator runtime,
+selected with `sudo xcode-select -s /Applications/Xcode.app`, and
+`npm install -g agent-device`. Each worker gets its own simulator; `SIM_MAX` in
+`kitchen.conf` limits how many run at once.
 
 Open each repository once with `claude` and accept the trust dialog. Worktrees of a
 trusted repository start without asking.

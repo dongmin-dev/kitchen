@@ -109,8 +109,8 @@ Observed with Xcode 27.2 and agent-device 0.21.37.
   (`brew install cocoapods`); the Ruby that ships with macOS is too old to install it.
 - With CocoaPods present, a Codex tester built an Expo app (no `ios/` folder in the
   repository) for its simulator and walked the sign-in flow on web and on iOS. The
-  first native build made the whole check take about twelve minutes, so the
-  orchestrator saw `STILL RUNNING` once.
+  first native build made the whole check take about twelve minutes, longer
+  than one `kitchen check` waits.
 
 ## git and gh
 
@@ -127,5 +127,7 @@ Observed with Xcode 27.2 and agent-device 0.21.37.
 
 ## Not yet observed on the real tools
 
+- `kitchen check` answering `STILL RUNNING` for a check longer than nine minutes (the
+  long iOS check above was started directly; covered by the stub tests only).
 - Two iOS checks running at the same time, and a third waiting for `SIM_MAX`
   (covered by the stub tests only).

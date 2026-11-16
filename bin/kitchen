@@ -309,11 +309,46 @@ cmd__check() {
   fi
   echo "kitchen: testing $head"
   codex exec "${CODEX_ARGS[@]}" -c "model_reasoning_effort=$TESTER_EFFORT" \
-    "Read $KITCHEN_HOME/roles/tester.md and follow it exactly. The base branch is $base." 2>&1 | tee "$k/test.log"
+    "Read $KITCHEN_HOME/roles/tester.md and follow it exactly. The base branch is $base. The kitchen command is $KITCHEN_HOME/bin/kitchen." 2>&1 | tee "$k/test.log"
   echo "${PIPESTATUS[0]}" > "$k/test.exit"
+  if [ -f "$k/sim" ]; then xcrun simctl shutdown "$(cat "$k/sim")" >/dev/null 2>&1; fi
   echo "$head" > "$k/check.done"
   rm -f "$k/check.pid"
   echo "kitchen: check finished"
+}
+
+# The iOS simulator of the worktree this is run in, for the tester. Created on first use,
+# booted when needed, and printed as its id. Every worktree has its own, so two checks
+# never install the same app on one device. Only $SIM_MAX of them run at a time; a check
+# shuts its simulator down when it ends, and "kitchen done" deletes it.
+cmd_sim() {
+  local top k udid
+  xcrun simctl help >/dev/null 2>&1 \
+    || die "no iOS simulator on this machine (install Xcode, then: sudo xcode-select -s /Applications/Xcode.app)"
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run 'kitchen sim' inside a worktree"
+  k="$top/.kitchen"
+  mkdir -p "$k"
+  udid=$(cat "$k/sim" 2>/dev/null || true)
+  if [ -z "$udid" ] || ! xcrun simctl list devices | grep -qF "$udid"; then
+    udid=$(xcrun simctl create "kitchen-$(basename "$top")" "$SIM_DEVICE") \
+      || die "could not create an '$SIM_DEVICE' simulator (is an iOS runtime installed?)"
+    echo "$udid" > "$k/sim"
+  fi
+  if ! xcrun simctl list devices | grep -F "$udid" | grep -q Booted; then
+    while :; do
+      lock
+      if [ "$(xcrun simctl list devices | grep -c 'kitchen-.*(Booted)' || true)" -lt "$SIM_MAX" ]; then
+        xcrun simctl boot "$udid" || die "could not boot simulator $udid"
+        unlock
+        break
+      fi
+      unlock
+      echo "kitchen: $SIM_MAX simulators are already running; waiting for one to finish" >&2
+      sleep 15
+    done
+    xcrun simctl bootstatus "$udid" >/dev/null
+  fi
+  echo "$udid"
 }
 
 cmd_list() {
@@ -344,6 +379,7 @@ cmd_done() {
   done
   rm -f "$STATE/$name"
   if [ "${KIND:-}" = designer ]; then echo "removed designer $name"; return 0; fi
+  if [ -f "$DIR/.kitchen/sim" ]; then xcrun simctl delete "$(cat "$DIR/.kitchen/sim")" >/dev/null 2>&1 || true; fi
   if [ -d "$DIR" ]; then git -C "$REPO" worktree remove --force "$DIR" || die "could not remove $DIR"; fi
   git -C "$REPO" fetch --quiet --prune origin || true
   if [ "$pr" = MERGED ]; then
@@ -373,6 +409,11 @@ cmd_doctor() {
     echo "ok       Codex is logged in"
   else
     echo "MISSING  Codex login (run: codex login)"; ok=0
+  fi
+  if xcrun simctl help >/dev/null 2>&1 && command -v agent-device >/dev/null 2>&1; then
+    echo "ok       iOS simulator and agent-device"
+  else
+    echo "note     no iOS simulator or no agent-device; iOS flow checks will be skipped (needs Xcode, npm install -g agent-device, and for Expo apps brew install cocoapods)"
   fi
   # Claude Code asks once per repository whether to trust it, and a worker cannot answer.
   # Look at the repository this folder is in, or at the repositories directly inside it.
@@ -406,8 +447,9 @@ case "$cmd" in
   tail)     cmd_tail "$@" ;;
   check)    cmd_check "$@" ;;
   _check)   cmd__check "$@" ;;
+  sim)      cmd_sim ;;
   list)     cmd_list ;;
   done)     cmd_done "$@" ;;
   doctor)   cmd_doctor ;;
-  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check list done doctor" ;;
+  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim list done doctor" ;;
 esac

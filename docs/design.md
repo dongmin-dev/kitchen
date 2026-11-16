@@ -77,5 +77,9 @@ is wrong, the fix should make the tool smaller or leave it the same size.
 
 - The orchestrator's restraint with Bash is an instruction, not an enforced rule.
 - The tester's browser check needs the Playwright MCP server configured in Codex.
+- The tester's iOS check needs Xcode with a simulator runtime and `agent-device`
+  (and CocoaPods for Expo or React Native apps). Each worker gets its own simulator so
+  that parallel checks cannot overwrite each other's app; `SIM_MAX` keeps only a few
+  running, because every simulator and Xcode build takes a large share of a laptop.
 - kitchen depends on the command-line behaviour of Herdr, Claude Code, and Codex.
   What it relies on is listed in [tool-contracts.md](tool-contracts.md).

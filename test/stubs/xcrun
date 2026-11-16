@@ -1,0 +1,12 @@
+#!/bin/bash
+# Stub xcrun: "simctl" keeps its devices in $STUB_LOG.sims, one "name (id) (state)" per line.
+{ printf 'xcrun:'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+S="$STUB_LOG.sims"; touch "$S"
+[ "$1" = simctl ] || exit 0
+case "$2" in
+  list)     cat "$S" ;;
+  create)   id="SIM$(($(wc -l < "$S") + 1))"; echo "    $3 ($id) (Shutdown)" >> "$S"; echo "$id" ;;
+  boot)     sed -i '' "s/($3) (Shutdown)/($3) (Booted)/" "$S" ;;
+  shutdown) sed -i '' "s/($3) (Booted)/($3) (Shutdown)/" "$S" ;;
+  delete)   sed -i '' "/($3)/d" "$S" ;;
+esac

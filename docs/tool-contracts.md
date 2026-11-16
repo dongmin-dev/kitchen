@@ -88,6 +88,29 @@ codex-cli 0.167.2.
   tool problem and redoes the run on the next `kitchen check`.
 - `codex mcp list` lists configured MCP servers; `codex login status` exits 0 when
   logged in.
+- `codex exec` waits for input when stdin is open and not a terminal. In a Herdr pane it
+  is a terminal; a script that runs `kitchen _check` directly must add `</dev/null`.
+
+## Xcode and agent-device (iOS checks)
+
+Observed with Xcode 27.2 and agent-device 0.21.37.
+
+- `xcrun simctl create NAME "iPhone 17"` creates a simulator on the newest installed
+  runtime and prints its id. `simctl boot ID` returns at once and `simctl bootstatus ID`
+  waits until it is usable (about 30 seconds the first time). No Simulator window opens.
+- `simctl list devices` prints one `NAME (ID) (Booted|Shutdown)` line per simulator.
+- `xcodebuild -destination "platform=iOS Simulator,id=ID"` builds for one simulator.
+  A destination given by name picks whichever matching simulator comes first.
+- `agent-device open APP --udid ID`, `snapshot -i`, `press`, `fill`, and `screenshot`
+  drive an app on that simulator from the shell, without any MCP configuration.
+- A Codex tester given `kitchen sim` built a SwiftUI app, installed it, walked a flow,
+  and reported a wrong value on screen with screenshots, in under four minutes.
+- An Expo app with no `ios/` folder needs CocoaPods for its native build
+  (`brew install cocoapods`); the Ruby that ships with macOS is too old to install it.
+- With CocoaPods present, a Codex tester built an Expo app (no `ios/` folder in the
+  repository) for its simulator and walked the sign-in flow on web and on iOS. The
+  first native build made the whole check take about twelve minutes, longer
+  than one `kitchen check` waits.
 
 ## git and gh
 
@@ -104,4 +127,7 @@ codex-cli 0.167.2.
 
 ## Not yet observed on the real tools
 
-- A single check that runs longer than nine minutes (covered by the stub tests only).
+- `kitchen check` answering `STILL RUNNING` for a check longer than nine minutes (the
+  long iOS check above was started directly; covered by the stub tests only).
+- Two iOS checks running at the same time, and a third waiting for `SIM_MAX`
+  (covered by the stub tests only).

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Scenario tests for bin/kitchen against stub herdr, codex, and gh.
+# Scenario tests for bin/kitchen against stub herdr, codex, gh, and xcrun.
 # Usage: test/run.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,6 +92,15 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"
   > "$T/home/.claude/projects/p/sess1.jsonl"
 check "prints the agent's last message"    test "$(HOME="$T/home" "$K" tail w1)" = "last message"
 
+echo "# sim"
+sim=$(cd "$W" && "$K" sim 2>&1)
+check "creates a simulator for the worktree" grep -q "kitchen-repo--w1 ($sim) (Booted)" "$STUB_LOG.sims"
+check "prints the same one again"          test "$(cd "$W" && "$K" sim 2>&1)" = "$sim"
+check "creates it only once"               test "$(calls '[simctl] [create]')" = 1
+git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m again
+"$K" check w1 >/dev/null 2>&1
+check "shuts it down after a check"        grep -q "($sim) (Shutdown)" "$STUB_LOG.sims"
+
 echo "# done"
 out=$("$K" "done" w1 2>&1)
 check "refuses without a merged PR"        has "$out" "not merged"
@@ -99,6 +108,7 @@ check "keeps the worktree then"            test -d "$W"
 out=$(STUB_PR_STATE=MERGED "$K" "done" w1 2>&1)
 check "removes a merged worker"            has "$out" "merged branch feat/x"
 check "removes the worktree"               test ! -e "$W"
+check "deletes its simulator"              bash -c "! grep -q kitchen-repo--w1 '$STUB_LOG.sims'"
 check "removes the branch"                 bash -c "! git -C '$T/repo' rev-parse --verify -q feat/x"
 check "removes the record"                 test ! -e "$T/data/state/w1"
 check "closes the worker pane"             has "$(cat "$STUB_LOG")" "[pane] [close] [w1:p1]"

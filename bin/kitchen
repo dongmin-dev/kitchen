@@ -10,6 +10,9 @@ KITCHEN_HOME="$(cd "$(dirname "$0")/.." && pwd)"
 # worktrees or the records of live workers.
 DATA="${KITCHEN_DATA:-$HOME/.kitchen}"
 STATE="$DATA/state"
+# Settings of this machine only, such as REMOTE_HOST.
+# shellcheck disable=SC1091
+if [ -f "$DATA/conf" ]; then . "$DATA/conf"; fi
 WT="$DATA/worktrees"
 mkdir -p "$STATE" "$WT"
 
@@ -38,8 +41,45 @@ valid_name() {
 
 load() {
   [ -f "$STATE/$1" ] || die "no worker named '$1' (see: kitchen list)"
+  ON=""
   # shellcheck disable=SC1090
   . "$STATE/$1"
+}
+
+# A worker can run on a second machine (REMOTE_HOST): kitchen there creates the worktree
+# and starts the agent in that machine's Herdr, which this Herdr shows as a saved machine.
+# Here the worker has a record with ON=<host>, and its commands are passed on over SSH.
+# Checks always run on this machine, on the branch the worker pushed.
+remote() {
+  local cmd="HERDR_ENV=1 $REMOTE_KITCHEN" a
+  for a in "$@"; do cmd="$cmd $(printf '%q' "$a")"; done
+  ssh -o BatchMode=yes "$REMOTE_HOST" "zsh -lc $(printf '%q' "$cmd")"
+}
+
+# The notes file of a project exists once per machine. Copy to each side the lines it lacks.
+sync_notes() {
+  [ -n "${REMOTE_HOST:-}" ] && grep -qs '^ON=' "$STATE"/* || return 0
+  local n="$DATA/notes/$1.md" t
+  mkdir -p "$DATA/notes"
+  [ -f "$n" ] || echo "# Shared notes (newest at the bottom)" > "$n"
+  t=$(mktemp)
+  if remote _notes "$1" > "$t" 2>/dev/null; then
+    grep -Fxv -f "$t" "$n" | remote _notes "$1" add >/dev/null 2>&1 || true
+    grep -Fxv -f "$n" "$t" >> "$n" || true
+  fi
+  rm -f "$t"
+}
+
+# Untracked env files do not follow a worktree or a clone; copy them from the main
+# checkout. Keep kitchen's files out of git.
+prep_dir() {
+  local repo=$1 dir=$2 f exclude
+  for f in "$repo"/.env "$repo"/.env.*; do
+    if [ -f "$f" ]; then cp -n "$f" "$dir/" || true; fi
+  done
+  mkdir -p "$dir/.kitchen"
+  exclude="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  grep -qx '.kitchen/' "$exclude" 2>/dev/null || { mkdir -p "$(dirname "$exclude")"; echo '.kitchen/' >> "$exclude"; }
 }
 
 # A project has two Herdr workspaces: "<project> workers" and "<project> checks". Every
@@ -84,14 +124,15 @@ agent_field() {
 
 cmd_worker() {
   need_herdr
-  local repo_arg="" args=()
+  local repo_arg="" sim=0 args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) repo_arg=${2:-}; shift 2 || die "--repo needs a path" ;;
+      --sim) sim=1; shift ;;
       *) args+=("$1"); shift ;;
     esac
   done
-  [ ${#args[@]} -ge 2 ] || die "usage: kitchen worker <name> <branch> [medium|high] [--repo <path>]"
+  [ ${#args[@]} -ge 2 ] || die "usage: kitchen worker <name> <branch> [medium|high] [--repo <path>] [--sim]"
   local name=${args[0]} branch=${args[1]} effort=${args[2]:-$WORKER_EFFORT}
   valid_name "$name"
   [ -e "$STATE/$name" ] && die "worker '$name' already exists (kitchen list)"
@@ -109,6 +150,26 @@ cmd_worker() {
   base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
   dir="$WT/$(basename "$repo")--$name"
 
+  # The second machine is for overflow: once LOCAL_MAX workers run here, the next ones
+  # go there. One that needs the iOS simulator (--sim) always stays here.
+  local here
+  if [ -n "${REMOTE_HOST:-}" ] && [ $sim = 0 ]; then
+    here=$(($( (grep -Ls -e '^ON=' -e '^KIND=designer' "$STATE"/* || true) | wc -l)))
+    if [ "$here" -ge "$LOCAL_MAX" ]; then
+      {
+        printf 'PROJECT=%q\n' "$project"
+        printf 'REPO=%q\n' "$repo"
+        printf 'DIR=%q\n' "$dir"
+        printf 'BRANCH=%q\n' "$branch"
+        printf 'BASE=%q\n' "$base"
+        printf 'ON=%q\n' "$REMOTE_HOST"
+      } > "$STATE/$name"
+      unlock
+      remote_worker "$name" "$branch" "$effort" "$project" "$repo" "$base"
+      return 0
+    fi
+  fi
+
   # A branch that already exists, here or on origin, is continued instead of created.
   if git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null \
       || git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
@@ -119,21 +180,14 @@ cmd_worker() {
     git -C "$repo" worktree add --quiet -b "$branch" "$dir" "$base" >&2 || die "could not create the worktree"
   fi
 
-  # Untracked env files do not follow a worktree; copy them from the main checkout.
-  local f
-  for f in "$repo"/.env "$repo"/.env.*; do
-    if [ -f "$f" ]; then cp -n "$f" "$dir/" || true; fi
-  done
+  prep_dir "$repo" "$dir"
   # Shared notes: one file per project (the folder chef was started in), linked into
   # every worktree so workers of different repositories can leave facts for each other.
   local notes
   notes="$DATA/notes/$project.md"
-  mkdir -p "$DATA/notes" "$dir/.kitchen"
+  mkdir -p "$DATA/notes"
   [ -f "$notes" ] || echo "# Shared notes (newest at the bottom)" > "$notes"
   ln -sf "$notes" "$dir/.kitchen/notes.md"
-  # Keep kitchen's files out of git.
-  local exclude="$repo/.git/info/exclude"
-  grep -qx '.kitchen/' "$exclude" 2>/dev/null || { mkdir -p "$repo/.git/info"; echo '.kitchen/' >> "$exclude"; }
 
   if ! pane=$(new_pane "$project workers" "$dir" "$name"); then
     git -C "$repo" worktree remove --force "$dir"
@@ -159,6 +213,50 @@ cmd_worker() {
 
   echo "worker=$name model=$WORKER_MODEL effort=$effort branch=$branch base=$base"
 }
+
+# Start a worker on the second machine, in a clone of the same repository there.
+remote_worker() {
+  local name=$1 branch=$2 effort=$3 project=$4 repo=$5 base=$6 url rrepo f out
+  url=$(git -C "$repo" remote get-url origin)
+  if ! rrepo=$(remote _repo "$url"); then
+    rm -f "$STATE/$name"
+    die "could not reach $REMOTE_HOST or clone $url there; nothing was left behind"
+  fi
+  for f in "$repo"/.env "$repo"/.env.*; do
+    if [ -f "$f" ]; then scp -q "$f" "$REMOTE_HOST:$rrepo/" || true; fi
+  done
+  sync_notes "$project"
+  if out=$(remote _worker "$project" "$rrepo" "$name" "$branch" "$effort" 2>&1); then
+    echo "$out on=$REMOTE_HOST"
+  elif remote _has "$name" 2>/dev/null; then
+    die "$out
+(the worker runs on $REMOTE_HOST; its pane is in that machine's '$project workers' workspace)"
+  else
+    rm -f "$STATE/$name"
+    die "$out"
+  fi
+}
+
+# The commands below run on the second machine, called by "remote".
+cmd__repo() {
+  local d
+  d="$DATA/repos/$(basename "$1" .git)"
+  if [ ! -d "$d/.git" ]; then
+    mkdir -p "$DATA/repos"
+    git clone --quiet "$1" "$d" >&2 || die "git clone failed"
+  fi
+  echo "$d"
+}
+cmd__worker() { local project=$1 repo=$2; shift 2; KITCHEN_PROJECT=$project cmd_worker "$@" --repo "$repo"; }
+cmd__has() { [ -f "$STATE/$1" ]; }
+cmd__notes() {
+  local n="$DATA/notes/$1.md"
+  mkdir -p "$DATA/notes"
+  [ -f "$n" ] || echo "# Shared notes (newest at the bottom)" > "$n"
+  if [ "${2:-}" = add ]; then cat >> "$n"; else cat "$n"; fi
+}
+# Unpack the results of a check, sent on stdin, into the worker's worktree.
+cmd__results() { load "$1"; tar -C "$DIR/.kitchen" -xf -; }
 
 cmd_designer() {
   need_herdr
@@ -189,6 +287,9 @@ cmd_designer() {
 cmd_tell() {
   need_herdr
   [ $# -eq 2 ] || die "usage: kitchen tell <name> \"<instruction>\""
+  load "$1"
+  sync_notes "$PROJECT"
+  if [ -n "$ON" ]; then remote tell "$@"; return; fi
   herdr agent prompt "$1" "$2" >/dev/null || die "could not prompt '$1'"
   # Give the agent time to switch to "working"; otherwise an immediate
   # 'kitchen wait' would see the old idle state and return at once.
@@ -200,14 +301,19 @@ cmd_wait() {
   need_herdr
   [ $# -eq 1 ] || die "usage: kitchen wait <name>"
   local st
+  load "$1"
+  if [ -n "$ON" ]; then remote "wait" "$1"; sync_notes "$PROJECT"; return; fi
   herdr agent wait "$1" --timeout 540000 >/dev/null 2>&1 || true
   st=$(agent_field "$1" agent_status)
+  sync_notes "$PROJECT"
   echo "name=$1 state=${st:-gone}"
 }
 
 cmd_tail() {
   need_herdr
   [ $# -ge 1 ] || die "usage: kitchen tail <name> [lines]"
+  load "$1"
+  if [ -n "$ON" ]; then remote tail "$@"; return; fi
   # The agent's last message, from Claude Code's own record of the session. The screen
   # is a poor source: it is mostly interface, and it shows old text when scrolled up.
   local sid f="" text=""
@@ -250,6 +356,20 @@ cmd_check() {
   load "$name"
   [ "${KIND:-}" != designer ] || die "'$name' is a designer; there is nothing to check"
   k="$DIR/.kitchen"
+  # A worker on the second machine is checked here, in a checkout of what it pushed.
+  if [ -n "$ON" ] && ! { [ -f "$k/check.pid" ] && kill -0 "$(cat "$k/check.pid")" 2>/dev/null; }; then
+    git -C "$REPO" fetch --quiet origin || die "git fetch failed"
+    git -C "$REPO" rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" >/dev/null \
+      || die "branch $BRANCH is not on origin yet; the worker on $ON has to push it first"
+    if [ -d "$DIR" ]; then
+      git -C "$DIR" checkout --quiet --force --detach "origin/$BRANCH" || die "could not update $DIR"
+    else
+      lock
+      git -C "$REPO" worktree add --quiet --detach "$DIR" "origin/$BRANCH" >&2 || die "could not create $DIR"
+      unlock
+      prep_dir "$REPO" "$DIR"
+    fi
+  fi
   mkdir -p "$k"
   head=$(git -C "$DIR" rev-parse HEAD)
 
@@ -284,6 +404,11 @@ cmd_check() {
   else
     echo "test: the tester wrote NO CARD (exit $(cat "$k/test.exit")); this is a tool error. Last lines of .kitchen/test.log:"
     tail -n 8 "$k/test.log" | cut -c1-300
+  fi
+  # The worker reads these two files when it is told to fix the findings.
+  if [ -n "$ON" ] && [ -f "$k/card.txt" ]; then
+    tar -C "$k" -cf - review.txt card.txt | remote _results "$name" \
+      || echo "kitchen: could not copy the results to $ON; the worker there cannot read them"
   fi
 }
 
@@ -352,12 +477,22 @@ cmd_sim() {
 }
 
 cmd_list() {
-  local f n st found=0
+  local f n found=0
+  if [ -n "${REMOTE_HOST:-}" ]; then echo "second machine: $REMOTE_HOST (used once $LOCAL_MAX workers run here; never for --sim)"; fi
   for f in "$STATE"/*; do
     [ -f "$f" ] || continue
-    found=1; n=$(basename "$f"); st=$(agent_field "$n" agent_status)
-    # shellcheck disable=SC1090
-    ( . "$f"; echo "$n  state=${st:-gone}  branch=$BRANCH  dir=$DIR" )
+    found=1; n=$(basename "$f")
+    (
+      ON=""
+      # shellcheck disable=SC1090
+      . "$f"
+      if [ -n "$ON" ]; then
+        st=$(herdr --machine "$ON" agent get "$n" 2>/dev/null | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)
+        echo "$n  state=${st:-gone}  branch=$BRANCH  on=$ON"
+      else
+        echo "$n  state=$(agent_field "$n" agent_status | grep . || echo gone)  branch=$BRANCH  dir=$DIR"
+      fi
+    )
   done
   [ $found = 1 ] || echo "(no workers)"
 }
@@ -373,6 +508,7 @@ cmd_done() {
     [ -z "$(git -C "$DIR" status --porcelain 2>/dev/null)" ] \
       || die "'$name' has uncommitted changes in $DIR. Nothing was removed. To throw them away: kitchen done $name --force"
   fi
+  if [ -n "$ON" ]; then remote "done" "$@" >/dev/null || die "$ON did not remove '$name'. Nothing was removed here."; fi
   # Closing the last pane of a workspace closes the workspace too.
   for p in "${PANE:-}" "${CPANE:-}"; do
     if [ -n "$p" ]; then herdr pane close "$p" >/dev/null 2>&1 || true; fi
@@ -415,6 +551,13 @@ cmd_doctor() {
   else
     echo "note     no iOS simulator or no agent-device; iOS flow checks will be skipped (needs Xcode, npm install -g agent-device, and for Expo apps brew install cocoapods)"
   fi
+  if [ -n "${REMOTE_HOST:-}" ]; then
+    if herdr machine status 2>/dev/null | grep -q "$REMOTE_HOST.*reachable" && remote doctor >/dev/null 2>&1; then
+      echo "ok       second machine $REMOTE_HOST"
+    else
+      echo "MISSING  second machine $REMOTE_HOST: needs 'herdr machine add $REMOTE_HOST', SSH without a password, and a passing 'kitchen doctor' there"; ok=0
+    fi
+  fi
   # Claude Code asks once per repository whether to trust it, and a worker cannot answer.
   # Look at the repository this folder is in, or at the repositories directly inside it.
   local d top
@@ -447,6 +590,11 @@ case "$cmd" in
   tail)     cmd_tail "$@" ;;
   check)    cmd_check "$@" ;;
   _check)   cmd__check "$@" ;;
+  _repo)    cmd__repo "$@" ;;
+  _worker)  cmd__worker "$@" ;;
+  _has)     cmd__has "$@" ;;
+  _notes)   cmd__notes "$@" ;;
+  _results) cmd__results "$@" ;;
   sim)      cmd_sim ;;
   list)     cmd_list ;;
   done)     cmd_done "$@" ;;

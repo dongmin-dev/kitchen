@@ -1,0 +1,3 @@
+#!/bin/bash
+# Stub scp: "scp -q FILE host:DIR/" copies on this machine.
+cp "$2" "${3#*:}"

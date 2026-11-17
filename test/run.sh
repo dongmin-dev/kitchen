@@ -1,5 +1,5 @@
 #!/bin/bash
-# Scenario tests for bin/kitchen against stub herdr, codex, gh, and xcrun.
+# Scenario tests for bin/kitchen against stub herdr, codex, gh, xcrun, ssh, and scp.
 # Usage: test/run.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +15,7 @@ has()  { grep -qF -- "$2" <<<"$1"; }
 calls() { grep -cF -- "$1" "$STUB_LOG" || true; }
 
 # A repository with an origin, the way kitchen expects it.
-git init -q --bare "$T/origin.git"
+git init -q --bare -b main "$T/origin.git"
 git init -q -b main "$T/repo"
 cd "$T/repo" || exit 1
 git -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
@@ -119,6 +119,41 @@ echo "# done --force"
 out=$("$K" "done" w3 --force 2>&1)
 check "removes the worker"                 test ! -e "$T/data/worktrees/repo--w3"
 check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -q feat/k
+
+echo "# second machine"
+export STUB_REMOTE_DATA="$T/remote"
+printf 'REMOTE_HOST=mini\nLOCAL_MAX=1\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"
+echo SECRET=1 > "$T/repo/.env"
+RW="$T/remote/worktrees/origin--wr"
+"$K" worker wl feat/l >/dev/null 2>&1
+out=$("$K" worker wr feat/r 2>&1)
+check "keeps workers here up to the limit"       bash -c "! grep -q '^ON=' '$T/data/state/wl'"
+check "sends the second one over"          has "$out" "worker=wr"
+check "says where it runs"                 has "$out" "on=mini"
+check "records the machine"                grep -q '^ON=mini$' "$T/data/state/wr"
+check "clones and branches over there"     test "$(git -C "$RW" branch --show-current)" = feat/r
+check "copies the env file over"           test -f "$RW/.env"
+check "makes no worktree here yet"         test ! -e "$T/data/worktrees/repo--wr"
+"$K" worker ws feat/s --sim >/dev/null 2>&1
+check "keeps a simulator worker here"      bash -c "! grep -q '^ON=' '$T/data/state/ws'"
+echo "- [feat/l] from here" >> "$T/data/notes/repo.md"
+echo "- [feat/r] from there" >> "$T/remote/notes/repo.md"
+check "passes tell on"                     has "$("$K" tell wr hello 2>&1)" "sent to wr"
+check "copies notes over"                  grep -q "from here" "$T/remote/notes/repo.md"
+check "copies notes back"                  grep -q "from there" "$T/data/notes/repo.md"
+check "passes wait on"                     has "$("$K" "wait" wr 2>&1)" "name=wr state=idle"
+check "lists it with its machine"          has "$("$K" list 2>&1)" "wr  state=idle  branch=feat/r  on=mini"
+check "refuses to check an unpushed branch" has "$("$K" check wr 2>&1)" "not on origin yet"
+git -C "$RW" -c user.name=t -c user.email=t@t commit -q --allow-empty -m work
+git -C "$RW" push -q origin feat/r
+out=$("$K" check wr 2>&1)
+check "checks the pushed branch here"      has "$out" "TESTS: 2/2"
+check "checks the commit that was pushed"  test "$(git -C "$T/data/worktrees/repo--wr" rev-parse HEAD)" = "$(git -C "$RW" rev-parse HEAD)"
+check "sends the results over"             test -f "$RW/.kitchen/card.txt"
+"$K" "done" wr --force >/dev/null 2>&1
+check "removes it over there"              test ! -e "$RW"
+check "removes its checkout here"          test ! -e "$T/data/worktrees/repo--wr"
+check "removes its record here"            test ! -e "$T/data/state/wr"
 
 echo
 if [ "$fails" = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

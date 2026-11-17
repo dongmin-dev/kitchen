@@ -112,6 +112,22 @@ Observed with Xcode 27.2 and agent-device 0.21.37.
   first native build made the whole check take about twelve minutes, longer
   than one `kitchen check` waits.
 
+## A second machine (Herdr machines and SSH)
+
+Observed between two Macs with Herdr 0.9.5 on both.
+
+- A machine saved with `herdr machine add NAME` shows its workspaces and agents in the
+  local Herdr window. `herdr --machine NAME <command>` runs an API command there, and
+  `herdr machine status` prints `reachable` for it.
+- `ssh NAME 'zsh -lc "HERDR_ENV=1 kitchen ..."'` reaches the Herdr server of that
+  machine from outside any pane; a login shell is needed for the Homebrew `PATH`.
+- A worker started this way took a prompt, pushed its branch, and was checked on the
+  first machine; `tell` took about 25 seconds and the whole start about 45.
+- The clone that kitchen makes on the second machine is new to Claude Code, so the first
+  worker in it stops at the trust dialog (`agent_not_ready`). The dialog's default
+  answer is "No, exit". After it is accepted once, the same worker continues with
+  `kitchen tell`.
+
 ## git and gh
 
 - Two `git worktree add` in one repository at the same moment can fail on git's config

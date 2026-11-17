@@ -122,7 +122,7 @@ check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -
 
 echo "# second machine"
 export STUB_REMOTE_DATA="$T/remote"
-printf 'REMOTE_HOST=mini\nLOCAL_MAX=1\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"
+printf 'REMOTE=true\nREMOTE_HOST=mini\nLOCAL_MAX=1\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"
 echo SECRET=1 > "$T/repo/.env"
 RW="$T/remote/worktrees/origin--wr"
 "$K" worker wl feat/l >/dev/null 2>&1
@@ -150,6 +150,10 @@ out=$("$K" check wr 2>&1)
 check "checks the pushed branch here"      has "$out" "TESTS: 2/2"
 check "checks the commit that was pushed"  test "$(git -C "$T/data/worktrees/repo--wr" rev-parse HEAD)" = "$(git -C "$RW" rev-parse HEAD)"
 check "sends the results over"             test -f "$RW/.kitchen/card.txt"
+sed -i '' 's/^REMOTE=true/REMOTE=false/' "$T/data/conf"
+"$K" worker wo feat/o >/dev/null 2>&1
+check "keeps every worker here when off"   bash -c "! grep -q '^ON=' '$T/data/state/wo'"
+check "still reaches a worker over there"  has "$("$K" tell wr again 2>&1)" "sent to wr"
 "$K" "done" wr --force >/dev/null 2>&1
 check "removes it over there"              test ! -e "$RW"
 check "removes its checkout here"          test ! -e "$T/data/worktrees/repo--wr"

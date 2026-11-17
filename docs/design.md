@@ -73,7 +73,7 @@ the orchestrator.
 one config file, four role files. State is one small file per worker. When something
 is wrong, the fix should make the tool smaller or leave it the same size.
 
-**A second machine is the same tool again.** With `REMOTE_HOST` set, a worker that
+**A second machine is the same tool again.** With `REMOTE=true`, a worker that
 does not need the simulator goes to the second machine once `LOCAL_MAX` workers run on
 the first. kitchen on the first
 machine does not reimplement anything for it: it calls kitchen on the second machine over

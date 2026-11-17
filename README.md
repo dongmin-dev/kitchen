@@ -65,7 +65,8 @@ selected with `sudo xcode-select -s /Applications/Xcode.app`, and
 
 Optional, a second machine for workers: install kitchen there the same way, save it in
 Herdr on the first machine (`herdr machine add <ssh name>`), and write
-`REMOTE_HOST=<ssh name>` to `~/.kitchen/conf` on the first machine. The first four
+`REMOTE=true` and `REMOTE_HOST=<ssh name>` to `~/.kitchen/conf` on the first machine
+(`REMOTE=false` turns it off again; workers already there keep working). The first four
 workers (`LOCAL_MAX`) still run on the first machine; further ones go to the second,
 and all show up in the one Herdr window. Reviews, tests, and
 workers started with `--sim` stay on the first machine. The second machine clones each

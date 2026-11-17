@@ -10,7 +10,7 @@ KITCHEN_HOME="$(cd "$(dirname "$0")/.." && pwd)"
 # worktrees or the records of live workers.
 DATA="${KITCHEN_DATA:-$HOME/.kitchen}"
 STATE="$DATA/state"
-# Settings of this machine only, such as REMOTE_HOST.
+# Settings of this machine only, such as REMOTE and REMOTE_HOST.
 # shellcheck disable=SC1091
 if [ -f "$DATA/conf" ]; then . "$DATA/conf"; fi
 WT="$DATA/worktrees"
@@ -153,7 +153,8 @@ cmd_worker() {
   # The second machine is for overflow: once LOCAL_MAX workers run here, the next ones
   # go there. One that needs the iOS simulator (--sim) always stays here.
   local here
-  if [ -n "${REMOTE_HOST:-}" ] && [ $sim = 0 ]; then
+  if [ "$REMOTE" = true ] && [ $sim = 0 ]; then
+    [ -n "$REMOTE_HOST" ] || die "REMOTE=true needs REMOTE_HOST in $DATA/conf"
     here=$(($( (grep -Ls -e '^ON=' -e '^KIND=designer' "$STATE"/* || true) | wc -l)))
     if [ "$here" -ge "$LOCAL_MAX" ]; then
       {
@@ -478,7 +479,7 @@ cmd_sim() {
 
 cmd_list() {
   local f n found=0
-  if [ -n "${REMOTE_HOST:-}" ]; then echo "second machine: $REMOTE_HOST (used once $LOCAL_MAX workers run here; never for --sim)"; fi
+  if [ "$REMOTE" = true ]; then echo "second machine: $REMOTE_HOST (used once $LOCAL_MAX workers run here; never for --sim)"; fi
   for f in "$STATE"/*; do
     [ -f "$f" ] || continue
     found=1; n=$(basename "$f")
@@ -551,7 +552,9 @@ cmd_doctor() {
   else
     echo "note     no iOS simulator or no agent-device; iOS flow checks will be skipped (needs Xcode, npm install -g agent-device, and for Expo apps brew install cocoapods)"
   fi
-  if [ -n "${REMOTE_HOST:-}" ]; then
+  if [ "$REMOTE" != true ]; then
+    echo "note     second machine is off (REMOTE=false); all workers run here"
+  else
     if herdr machine status 2>/dev/null | grep -q "$REMOTE_HOST.*reachable" && remote doctor >/dev/null 2>&1; then
       echo "ok       second machine $REMOTE_HOST"
     else

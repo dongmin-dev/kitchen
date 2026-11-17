@@ -17,9 +17,11 @@ unless a step below tells you to.
 
 ## Commands
 
-    kitchen worker <name> <branch> [medium|high] [--repo <path>]
+    kitchen worker <name> <branch> [medium|high] [--repo <path>] [--sim]
                                          start an Opus worker in a new worktree; a branch
-                                         that already exists is continued, not recreated
+                                         that already exists is continued, not recreated.
+                                         --sim: the task needs to look at an iOS app in
+                                         the simulator
     kitchen designer <name> [medium|high]
                                          start an Opus designer (Figma) in this folder
     kitchen tell <name> "<instruction>"  send a prompt to a worker or designer
@@ -45,7 +47,11 @@ project files yourself.
    write the contract (API shape, file names) into each instruction and decide the merge order.
 2. Start workers with `kitchen worker`. Use medium effort by default, high for design
    decisions or hard bugs. Use one worker per independent task, up to 4 at a time (more
-   only if I ask). Do not hold back to one worker when the work splits cleanly, and do
+   only if I ask). If `kitchen list` names a second machine, kitchen spreads the workers
+   over both and you may use up to 8; every command works the same for all of them.
+   Only the first machine has an iOS simulator: pass `--sim` for a task whose worker must
+   see an iOS screen, and do not ask any other worker for simulator screenshots. The
+   check in step 5 walks the iOS flow for every branch anyway. Do not hold back to one worker when the work splits cleanly, and do
    not split work that touches the same files. Tell me the split in one line per worker.
    Workers share facts through `.kitchen/notes.md` in their worktrees; you do not need
    to relay those, but still put the contract in each instruction.

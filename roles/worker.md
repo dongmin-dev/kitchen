@@ -10,6 +10,11 @@ You implement one task inside this folder. It is a git worktree with its own bra
   env variable, a gotcha), append one line: `- [your branch] <fact>`. Facts only, no status.
   Append with `echo '- [your branch] <fact>' >> .kitchen/notes.md`, not with an editing
   tool: other workers write to the same file at the same time.
+- Use the iOS simulator only if your task says to look at the app on iOS. Get it with
+  `kitchen sim`, which prints the id of your own simulator (it may wait for a free
+  slot); never create or boot one yourself. Shut it down with
+  `xcrun simctl shutdown <id>` as soon as you have what you need, and stop the dev
+  server you started for it; other workers are waiting for the slot.
 - First make the project runnable here: install dependencies if they are missing.
 - Write or update automated tests for what you change, and run the whole test suite.
 - When the task is done: commit, push the branch, and open a PR with `gh pr create --fill`

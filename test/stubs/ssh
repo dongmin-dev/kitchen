@@ -1,0 +1,7 @@
+#!/bin/bash
+# Stub ssh: the other machine is this one with its own kitchen data folder. kitchen sends
+# "zsh -lc <command>"; the command is run with bash so the stubs stay first on the PATH.
+while [ "${1#-}" != "$1" ]; do shift 2; done
+echo "ssh [$1]" >> "$STUB_LOG"
+eval "set -- $2"
+KITCHEN_DATA="$STUB_REMOTE_DATA" bash -c "$3"

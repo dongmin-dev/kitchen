@@ -3,6 +3,7 @@
 # It remembers the labels of the workspaces it created, one per line; line N is workspace wN.
 { printf 'herdr'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
 WS="$STUB_LOG.workspaces"; touch "$WS"
+if [ "$1" = --machine ]; then shift 2; fi
 arg() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
 case "$1 $2" in
   "workspace list")   jq -Rn '{result:{workspaces:[inputs] | to_entries | map({workspace_id:"w\(.key+1)", label:.value})}}' < "$WS" ;;

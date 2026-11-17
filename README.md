@@ -14,7 +14,7 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 
 | Command | What it does |
 |---|---|
-| `kitchen worker <name> <branch> [medium\|high] [--repo <path>]` | New git worktree and branch (an existing branch is continued), Opus worker started in a new pane |
+| `kitchen worker <name> <branch> [medium\|high] [--repo <path>] [--sim]` | New git worktree and branch (an existing branch is continued), Opus worker started in a new pane |
 | `kitchen designer <name> [medium\|high]` | Opus designer for Figma work in the current folder |
 | `kitchen tell <name> "<instruction>"` | Send a prompt to a worker or designer |
 | `kitchen wait <name>` | Wait until the agent stops working, print its state |
@@ -62,6 +62,14 @@ Optional, for testing iOS apps (native or Expo): Xcode with an iOS simulator run
 selected with `sudo xcode-select -s /Applications/Xcode.app`, and
 `npm install -g agent-device`. Each worker gets its own simulator; `SIM_MAX` in
 `kitchen.conf` limits how many run at once.
+
+Optional, a second machine for workers: install kitchen there the same way, save it in
+Herdr on the first machine (`herdr machine add <ssh name>`), and write
+`REMOTE_HOST=<ssh name>` to `~/.kitchen/conf` on the first machine. Workers are then
+spread over both machines and all show up in the one Herdr window. Reviews, tests, and
+workers started with `--sim` stay on the first machine. The second machine clones each
+repository into `~/.kitchen/repos/`; open each clone once with `claude` there to accept
+the trust dialog.
 
 Open each repository once with `claude` and accept the trust dialog. Worktrees of a
 trusted repository start without asking.

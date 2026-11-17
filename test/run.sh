@@ -15,7 +15,7 @@ has()  { grep -qF -- "$2" <<<"$1"; }
 calls() { grep -cF -- "$1" "$STUB_LOG" || true; }
 
 # A repository with an origin, the way kitchen expects it.
-git init -q --bare "$T/origin.git"
+git init -q --bare -b main "$T/origin.git"
 git init -q -b main "$T/repo"
 cd "$T/repo" || exit 1
 git -c user.name=t -c user.email=t@t commit -q --allow-empty -m init

@@ -74,7 +74,8 @@ one config file, four role files. State is one small file per worker. When somet
 is wrong, the fix should make the tool smaller or leave it the same size.
 
 **A second machine is the same tool again.** With `REMOTE_HOST` set, a worker that
-does not need the simulator goes to the machine with fewer workers. kitchen on the first
+does not need the simulator goes to the second machine once `LOCAL_MAX` workers run on
+the first. kitchen on the first
 machine does not reimplement anything for it: it calls kitchen on the second machine over
 SSH (`worker`, `tell`, `wait`, `tail`, `done`), and Herdr shows that machine's panes next
 to the local ones. Reviews and tests stay on the first machine, in a checkout of what

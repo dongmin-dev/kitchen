@@ -122,19 +122,18 @@ check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -
 
 echo "# second machine"
 export STUB_REMOTE_DATA="$T/remote"
-printf 'REMOTE_HOST=mini\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"
+printf 'REMOTE_HOST=mini\nLOCAL_MAX=1\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"
 echo SECRET=1 > "$T/repo/.env"
 RW="$T/remote/worktrees/origin--wr"
 "$K" worker wl feat/l >/dev/null 2>&1
 out=$("$K" worker wr feat/r 2>&1)
-check "keeps the first worker here"        bash -c "! grep -q '^ON=' '$T/data/state/wl'"
+check "keeps workers here up to the limit"       bash -c "! grep -q '^ON=' '$T/data/state/wl'"
 check "sends the second one over"          has "$out" "worker=wr"
 check "says where it runs"                 has "$out" "on=mini"
 check "records the machine"                grep -q '^ON=mini$' "$T/data/state/wr"
 check "clones and branches over there"     test "$(git -C "$RW" branch --show-current)" = feat/r
 check "copies the env file over"           test -f "$RW/.env"
 check "makes no worktree here yet"         test ! -e "$T/data/worktrees/repo--wr"
-"$K" worker wt feat/t >/dev/null 2>&1
 "$K" worker ws feat/s --sim >/dev/null 2>&1
 check "keeps a simulator worker here"      bash -c "! grep -q '^ON=' '$T/data/state/ws'"
 echo "- [feat/l] from here" >> "$T/data/notes/repo.md"

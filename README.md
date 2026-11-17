@@ -65,8 +65,9 @@ selected with `sudo xcode-select -s /Applications/Xcode.app`, and
 
 Optional, a second machine for workers: install kitchen there the same way, save it in
 Herdr on the first machine (`herdr machine add <ssh name>`), and write
-`REMOTE_HOST=<ssh name>` to `~/.kitchen/conf` on the first machine. Workers are then
-spread over both machines and all show up in the one Herdr window. Reviews, tests, and
+`REMOTE_HOST=<ssh name>` to `~/.kitchen/conf` on the first machine. The first four
+workers (`LOCAL_MAX`) still run on the first machine; further ones go to the second,
+and all show up in the one Herdr window. Reviews, tests, and
 workers started with `--sim` stay on the first machine. The second machine clones each
 repository into `~/.kitchen/repos/`; open each clone once with `claude` there to accept
 the trust dialog.

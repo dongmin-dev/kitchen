@@ -47,8 +47,8 @@ project files yourself.
    write the contract (API shape, file names) into each instruction and decide the merge order.
 2. Start workers with `kitchen worker`. Use medium effort by default, high for design
    decisions or hard bugs. Use one worker per independent task, up to 4 at a time (more
-   only if I ask). If `kitchen list` names a second machine, kitchen spreads the workers
-   over both and you may use up to 8; every command works the same for all of them.
+   only if I ask). If `kitchen list` names a second machine, workers beyond the first
+   four run there and you may use up to 8; every command works the same for all of them.
    Only the first machine has an iOS simulator: pass `--sim` for a task whose worker must
    see an iOS screen, and do not ask any other worker for simulator screenshots. The
    check in step 5 walks the iOS flow for every branch anyway. Do not hold back to one worker when the work splits cleanly, and do

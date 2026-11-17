@@ -150,13 +150,12 @@ cmd_worker() {
   base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
   dir="$WT/$(basename "$repo")--$name"
 
-  # With a second machine, a worker goes where fewer workers are. One that needs the
-  # iOS simulator (--sim) stays here.
-  local there=0 here
+  # The second machine is for overflow: once LOCAL_MAX workers run here, the next ones
+  # go there. One that needs the iOS simulator (--sim) always stays here.
+  local here
   if [ -n "${REMOTE_HOST:-}" ] && [ $sim = 0 ]; then
-    there=$(($( (grep -ls '^ON=' "$STATE"/* || true) | wc -l)))
-    here=$(($(find "$STATE" -type f | wc -l) - there))
-    if [ "$here" -gt "$there" ]; then
+    here=$(($( (grep -Ls -e '^ON=' -e '^KIND=designer' "$STATE"/* || true) | wc -l)))
+    if [ "$here" -ge "$LOCAL_MAX" ]; then
       {
         printf 'PROJECT=%q\n' "$project"
         printf 'REPO=%q\n' "$repo"
@@ -479,7 +478,7 @@ cmd_sim() {
 
 cmd_list() {
   local f n found=0
-  if [ -n "${REMOTE_HOST:-}" ]; then echo "second machine: $REMOTE_HOST (workers without --sim are spread over both)"; fi
+  if [ -n "${REMOTE_HOST:-}" ]; then echo "second machine: $REMOTE_HOST (used once $LOCAL_MAX workers run here; never for --sim)"; fi
   for f in "$STATE"/*; do
     [ -f "$f" ] || continue
     found=1; n=$(basename "$f")

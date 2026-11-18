@@ -5,7 +5,7 @@ versions below, not taken from documentation. When a tool update breaks kitchen,
 against this list first, and update the list when behaviour changes.
 
 Observed in November 2026 on macOS with Herdr 0.9.5, Claude Code 2.1.311, and
-codex-cli 0.167.2.
+codex-cli 0.167.2 to 0.170.0.
 
 ## Herdr
 
@@ -35,6 +35,10 @@ codex-cli 0.167.2.
   `done`, `unknown`) and `.result.agent.pane_id`.
 - `herdr agent prompt NAME TEXT` sends a prompt. The status changes to `working` a
   moment later, so kitchen waits for that before returning.
+- `herdr agent prompt` also takes `--wait --until STATUS`, which would do both steps in
+  one call. Its documentation gives the agent five seconds to show `working` before it
+  fails with `agent_prompt_stalled`; kitchen keeps its own wait of twenty seconds, which
+  a busy machine needs.
 - `herdr agent wait NAME [--until STATUS] [--timeout MS]` blocks until the agent stops
   working or the timeout passes.
 - `herdr agent read NAME --source recent-unwrapped --lines N` returns the pane's text.
@@ -88,6 +92,12 @@ codex-cli 0.167.2.
   tool problem and redoes the run on the next `kitchen check`.
 - `codex mcp list` lists configured MCP servers; `codex login status` exits 0 when
   logged in.
+- Since 0.169.0 `codex exec` and `codex review` ignore a project's own `.codex/` folder
+  (config, hooks, rules) in a folder Codex does not trust, and a worktree is such a
+  folder. The servers in `~/.codex/config.toml` still load there: on 0.170.0 a run in a
+  new, untrusted repository had the Playwright MCP tools. `--trust` would load the
+  project's `.codex/` too, but it adds one entry per worktree to `~/.codex/config.toml`;
+  kitchen does not pass it.
 - `codex exec` waits for input when stdin is open and not a terminal. In a Herdr pane it
   is a terminal; a script that runs `kitchen _check` directly must add `</dev/null`.
 

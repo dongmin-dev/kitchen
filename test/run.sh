@@ -119,6 +119,15 @@ echo "# done --force"
 out=$("$K" "done" w3 --force 2>&1)
 check "removes the worker"                 test ! -e "$T/data/worktrees/repo--w3"
 check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -q feat/k
+"$K" worker w4 feat/stuck >/dev/null 2>&1
+mkdir "$T/data/worktrees/repo--w4/locked"; touch "$T/data/worktrees/repo--w4/locked/f"; chmod a-w "$T/data/worktrees/repo--w4/locked"
+"$K" "done" w4 --force >/dev/null 2>&1
+check "keeps the record when removal fails" test -f "$T/data/state/w4"
+chmod u+w "$T/data/worktrees/repo--w4/locked"
+"$K" "done" w4 --force >/dev/null 2>&1
+check "removes the leftovers on a second try" test ! -e "$T/data/worktrees/repo--w4"
+check "removes the record then"            test ! -e "$T/data/state/w4"
+check "leaves no worktree entry in git"    bash -c "! git -C '$T/repo' worktree list | grep -q w4"
 
 echo "# settings"
 mkdir -p "$T/data/projects"

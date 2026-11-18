@@ -23,6 +23,7 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 | `kitchen tail <name> [lines]` | The agent's last message (first lines of it) |
 | `kitchen list` | Workers and their current state |
 | `kitchen done <name> [--force]` | After the pull request is merged: close the panes, remove the worktree and the branch |
+| `kitchen conf` | The settings in force for this project and the file each comes from |
 | `kitchen doctor` | Check that everything kitchen needs is installed |
 
 The loop the orchestrator follows is in [`roles/orchestrator.md`](roles/orchestrator.md):
@@ -42,7 +43,11 @@ Every agent runs without permission prompts. kitchen passes the flags for that i
 ## Files
 
 - `kitchen.zsh` defines `chef` and puts `bin/` on the `PATH`.
-- `kitchen.conf` holds the models and effort levels.
+- `kitchen.conf` holds the default of every setting (models, effort levels, limits).
+  Change a setting in `~/.kitchen/conf` (this machine) or in
+  `~/.kitchen/projects/<project>.conf` (one project; the name is the folder `chef` is
+  started in), never in `kitchen.conf` itself. The project file wins over the machine
+  file, which wins over the defaults. `kitchen conf` prints the values in force.
 - `roles/*.md` are the instructions each agent starts with.
 - `bin/kitchen` is the command.
 - Runtime data lives outside this folder in `~/.kitchen/`: worktrees, worker records,

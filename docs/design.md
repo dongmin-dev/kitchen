@@ -83,6 +83,14 @@ the worker pushed; the verdict and the card are copied back for the worker to re
 notes file exists on both machines and missing lines are copied each way on `tell` and
 `wait`.
 
+**Settings in three layers.** `kitchen.conf` in the install holds every default and is
+never edited, so an update cannot collide with it. `~/.kitchen/conf` changes values for
+one machine, and `~/.kitchen/projects/<project>.conf` for one project on that machine;
+the later file wins. The project files live in `~/.kitchen` rather than in the project
+so that a project made of several repositories has one, and no repository carries
+kitchen files. The two machines do not share these files: the first machine passes the
+worker's model and effort along, and everything else a remote worker needs is read there.
+
 ## Limits
 
 - The orchestrator's restraint with Bash is an instruction, not an enforced rule.

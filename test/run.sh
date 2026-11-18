@@ -120,6 +120,26 @@ out=$("$K" "done" w3 --force 2>&1)
 check "removes the worker"                 test ! -e "$T/data/worktrees/repo--w3"
 check "keeps the unmerged branch"          git -C "$T/repo" rev-parse --verify -q feat/k
 
+echo "# settings"
+mkdir -p "$T/data/projects"
+echo "TESTER_EFFORT=low" > "$T/data/conf"
+out=$("$K" conf 2>&1)
+check "reads this machine's settings"      has "$out" "TESTER_EFFORT    low"
+check "says where a value comes from"      bash -c 'grep "^TESTER_EFFORT" <<<"$1" | grep -q "data/conf$"' _ "$out"
+printf 'TESTER_EFFORT=xhigh\nCODEX_MODEL=project-model\n' > "$T/data/projects/repo.conf"
+out=$("$K" conf 2>&1)
+check "lets the project win"               has "$out" "TESTER_EFFORT    xhigh"
+check "names the project file"             bash -c 'grep "^CODEX_MODEL" <<<"$1" | grep -q "projects/repo.conf$"' _ "$out"
+check "keeps the defaults for the rest"    bash -c 'grep "^SIM_MAX" <<<"$1" | grep -q "kitchen.conf$"' _ "$out"
+check "ignores it in another project"      bash -c "! (cd '$T' && '$K' conf) | grep -q project-model"
+"$K" worker wc feat/c >/dev/null 2>&1
+git -C "$T/data/worktrees/repo--wc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c
+"$K" check wc >/dev/null 2>&1
+check "checks with the project's model"    has "$(cat "$STUB_LOG")" "[model=project-model]"
+check "finds the project inside a worktree" bash -c "(cd '$T/data/worktrees/repo--wc' && '$K' conf) | grep -q project-model"
+"$K" "done" wc --force >/dev/null 2>&1
+rm "$T/data/conf" "$T/data/projects/repo.conf"
+
 echo "# second machine"
 export STUB_REMOTE_DATA="$T/remote"
 printf 'REMOTE=true\nREMOTE_HOST=mini\nLOCAL_MAX=1\nREMOTE_KITCHEN=%q\n' "$K" > "$T/data/conf"

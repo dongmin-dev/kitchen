@@ -501,6 +501,63 @@ cmd_sim() {
   echo "$udid"
 }
 
+# The iOS Simulator app of the Expo project this is run in, for the tester, printed as a
+# path. Compiling the native part is the heavy step, so it is done once per fingerprint
+# (Expo's hash of everything native) and kept in $DATA/apps, on the second machine when
+# REMOTE=true. Only the JavaScript of this worktree is bundled here, which takes seconds.
+cmd_app() {
+  local top k hash name base i=0
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run 'kitchen app' inside a worktree"
+  cd "$top"
+  grep -qs '"expo"' package.json || die "this is not an Expo project; build the app with xcodebuild"
+  hash=$(npx --no-install @expo/fingerprint fingerprint:generate --platform ios 2>/dev/null | jq -er .hash) \
+    || die "could not compute the project's fingerprint (are its dependencies installed?)"
+  name=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
+  base="$DATA/apps/$name-$hash"
+  k="$top/.kitchen"
+  mkdir -p "$k" "$DATA/apps"
+  # One native build at a time; a second caller waits and then finds the app in place.
+  until mkdir "$DATA/apps/lock" 2>/dev/null || [ $i -ge 360 ]; do sleep 5; i=$((i+1)); done
+  trap 'rmdir "$DATA/apps/lock" 2>/dev/null' EXIT
+  if [ ! -d "$base" ]; then
+    echo "kitchen: no app for fingerprint $hash yet; building it" >&2
+    find "$DATA/apps" -mindepth 1 -maxdepth 1 -mtime +14 ! -name lock -exec rm -rf {} +
+    rm -rf "$base.new"
+    mkdir "$base.new"
+    git archive HEAD | if [ "$REMOTE" = true ]; then remote _build "$name"; else cmd__build "$name"; fi \
+      | tar -C "$base.new" -xf - || die "the native build failed"
+    mv "$base.new" "$base"
+  fi
+  rmdir "$DATA/apps/lock" 2>/dev/null || true
+  trap - EXIT
+  rm -rf "$k/app" "$k/repack"
+  mkdir -p "$k/app"
+  npx --yes @expo/repack-app --platform ios --source-app "$base"/*.app --js-bundle-only \
+      -o "$k/app/$(basename "$base"/*.app)" -w "$k/repack" . >&2 \
+    || die "could not bundle the JavaScript into the app"
+  echo "$k/app/$(basename "$base"/*.app)"
+}
+
+# Build the native app from the sources sent on stdin (a tar) and print it on stdout (a
+# tar). Runs on the second machine when there is one. Xcode's build folder is kept
+# between builds, so a later fingerprint compiles only what changed.
+cmd__build() {
+  local d="${BUILD_DIR:-$DATA/build}/$1" ws
+  mkdir -p "$d" || die "cannot use $d on $(hostname -s)"
+  rm -rf "$d/src"
+  mkdir "$d/src"
+  tar -C "$d/src" -xf -
+  cd "$d/src"
+  npm ci --no-audit --no-fund > "$d/build.log" 2>&1 \
+    && npx expo prebuild -p ios --clean >> "$d/build.log" 2>&1 </dev/null \
+    && ws=$(ls -d ios/*.xcworkspace) \
+    && xcodebuild -workspace "$ws" -scheme "$(basename "$ws" .xcworkspace)" -configuration Release \
+         -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+         -derivedDataPath "$d/dd" CODE_SIGNING_ALLOWED=NO -quiet >> "$d/build.log" 2>&1 </dev/null \
+    || die "the build failed on $(hostname -s); see $d/build.log there"
+  tar -C "$d/dd/Build/Products/Release-iphonesimulator" -cf - "$(basename "$ws" .xcworkspace).app"
+}
+
 cmd_list() {
   local f n found=0
   if [ "$REMOTE" = true ]; then echo "second machine: $REMOTE_HOST (used once $LOCAL_MAX workers run here; never for --sim)"; fi
@@ -648,9 +705,11 @@ case "$cmd" in
   _notes)   cmd__notes "$@" ;;
   _results) cmd__results "$@" ;;
   sim)      cmd_sim ;;
+  app)      cmd_app ;;
+  _build)   cmd__build "$@" ;;
   list)     cmd_list ;;
   done)     cmd_done "$@" ;;
   conf)     cmd_conf ;;
   doctor)   cmd_doctor ;;
-  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim list done conf doctor" ;;
+  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim app list done conf doctor" ;;
 esac

@@ -8,7 +8,11 @@ chef() {
     echo "chef: start herdr first, then run chef inside it."
     return 1
   fi
-  source "$KITCHEN_HOME/kitchen.conf"
+  # The same three settings files as bin/kitchen, later ones winning.
+  local f data="${KITCHEN_DATA:-$HOME/.kitchen}"
+  for f in "$KITCHEN_HOME/kitchen.conf" "$data/conf" "$data/projects/${PWD:t}.conf"; do
+    [[ -f "$f" ]] && source "$f"
+  done
   # "command" skips any claude alias, so the flags below are the whole story.
   # KITCHEN_PROJECT names the shared notes file, wherever kitchen is called from later.
   KITCHEN_PROJECT="$PWD" command claude "$@" \

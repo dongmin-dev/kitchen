@@ -10,11 +10,31 @@ KITCHEN_HOME="$(cd "$(dirname "$0")/.." && pwd)"
 # worktrees or the records of live workers.
 DATA="${KITCHEN_DATA:-$HOME/.kitchen}"
 STATE="$DATA/state"
-# Settings of this machine only, such as REMOTE and REMOTE_HOST.
-# shellcheck disable=SC1091
-if [ -f "$DATA/conf" ]; then . "$DATA/conf"; fi
 WT="$DATA/worktrees"
 mkdir -p "$STATE" "$WT"
+
+# The project is the folder chef was started in. Agents and check panes run inside a
+# worktree instead, where it is the project of the worker that owns the worktree.
+project_name() {
+  local top f
+  if [ -n "${KITCHEN_PROJECT:-}" ]; then basename "$KITCHEN_PROJECT"; return; fi
+  if top=$(git rev-parse --show-toplevel 2>/dev/null); then
+    for f in "$STATE"/*; do
+      [ -f "$f" ] || continue
+      # shellcheck disable=SC1090
+      if ( . "$f"; [ "$(cd "${DIR:-/nonexistent}" 2>/dev/null && pwd -P)" = "$top" ] && echo "$PROJECT" ); then return; fi
+    done
+  fi
+  basename "$PWD"
+}
+
+# Settings, later files winning: kitchen.conf (defaults, never edited), then this
+# machine's own, then the project's own. chef in kitchen.zsh reads the same three.
+CONF_FILES=("$KITCHEN_HOME/kitchen.conf" "$DATA/conf" "$DATA/projects/$(project_name).conf")
+# shellcheck disable=SC1090,SC1091
+if [ -f "${CONF_FILES[1]}" ]; then . "${CONF_FILES[1]}"; fi
+# shellcheck disable=SC1090,SC1091
+if [ -f "${CONF_FILES[2]}" ]; then . "${CONF_FILES[2]}"; fi
 
 # Codex runs without approval prompts or a sandbox on every machine, whatever its own
 # config.toml says. Unquoted values are taken as literal strings by "codex -c".
@@ -227,7 +247,7 @@ remote_worker() {
     if [ -f "$f" ]; then scp -q "$f" "$REMOTE_HOST:$rrepo/" || true; fi
   done
   sync_notes "$project"
-  if out=$(remote _worker "$project" "$rrepo" "$name" "$branch" "$effort" 2>&1); then
+  if out=$(remote _worker "$project" "$rrepo" "$WORKER_MODEL" "$name" "$branch" "$effort" 2>&1); then
     echo "$out on=$REMOTE_HOST"
   elif remote _has "$name" 2>/dev/null; then
     die "$out
@@ -248,7 +268,13 @@ cmd__repo() {
   fi
   echo "$d"
 }
-cmd__worker() { local project=$1 repo=$2; shift 2; KITCHEN_PROJECT=$project cmd_worker "$@" --repo "$repo"; }
+# The model and effort are the first machine's choice; the rest is read here.
+cmd__worker() {
+  local project=$1 repo=$2
+  WORKER_MODEL=$3
+  shift 3
+  KITCHEN_PROJECT=$project cmd_worker "$@" --repo "$repo"
+}
 cmd__has() { [ -f "$STATE/$1" ]; }
 cmd__notes() {
   local n="$DATA/notes/$1.md"
@@ -380,7 +406,7 @@ cmd_check() {
       || [ "$(cat "$k/review.done" 2>/dev/null)" != "$head" ] || [ ! -f "$k/card.txt" ]; then
     rm -f "$k/check.done" "$k/check.pid" "$k/card.txt"
     pane=$(check_pane "$name") || exit 1
-    herdr pane run "$pane" "$(printf '%q _check %q %q' "$KITCHEN_HOME/bin/kitchen" "$DIR" "$BASE")" >/dev/null \
+    herdr pane run "$pane" "$(printf 'KITCHEN_PROJECT=%q %q _check %q %q' "$PROJECT" "$KITCHEN_HOME/bin/kitchen" "$DIR" "$BASE")" >/dev/null \
       || die "could not start the check in pane $pane"
     while [ ! -f "$k/check.pid" ] && [ ! -f "$k/check.done" ] && [ $i -lt 20 ]; do sleep 2; i=$((i+1)); done
     [ -f "$k/check.pid" ] || [ -f "$k/check.done" ] || die "the check did not start; look at the '$name' pane of the '$PROJECT checks' workspace"
@@ -527,6 +553,22 @@ cmd_done() {
   fi
 }
 
+# Every setting with the value in force for this project and the file it comes from.
+cmd_conf() {
+  local v f src i
+  echo "project: $(project_name)"
+  for i in 0 1 2; do
+    if [ -f "${CONF_FILES[$i]}" ]; then echo "reads:   ${CONF_FILES[$i]}"; else echo "absent:  ${CONF_FILES[$i]}"; fi
+  done
+  for v in $(sed -n 's/^\([A-Z_][A-Z_]*\)=.*/\1/p' "${CONF_FILES[0]}"); do
+    src=${CONF_FILES[0]}
+    for f in "${CONF_FILES[1]}" "${CONF_FILES[2]}"; do
+      if grep -qs "^$v=" "$f"; then src=$f; fi
+    done
+    printf '%-16s %-28s %s\n' "$v" "${!v}" "$(basename "$(dirname "$src")")/$(basename "$src")"
+  done
+}
+
 cmd_doctor() {
   local ok=1 c
   for c in git jq gh herdr claude codex; do
@@ -551,6 +593,9 @@ cmd_doctor() {
     echo "ok       iOS simulator and agent-device"
   else
     echo "note     no iOS simulator or no agent-device; iOS flow checks will be skipped (needs Xcode, npm install -g agent-device, and for Expo apps brew install cocoapods)"
+  fi
+  if ! git -C "$KITCHEN_HOME" diff --quiet -- kitchen.conf 2>/dev/null; then
+    echo "note     kitchen.conf was edited, which blocks updates; put your values in $DATA/conf and run: git -C $KITCHEN_HOME checkout kitchen.conf"
   fi
   if [ "$REMOTE" != true ]; then
     echo "note     second machine is off (REMOTE=false); all workers run here"
@@ -601,6 +646,7 @@ case "$cmd" in
   sim)      cmd_sim ;;
   list)     cmd_list ;;
   done)     cmd_done "$@" ;;
+  conf)     cmd_conf ;;
   doctor)   cmd_doctor ;;
-  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim list done doctor" ;;
+  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim list done conf doctor" ;;
 esac

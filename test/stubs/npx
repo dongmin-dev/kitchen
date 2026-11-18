@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stub npx: the fingerprint is the content of .fingerprint (fp1 without one), "expo
+# prebuild" makes the workspace, and repack-app copies the app with the folder it was
+# run in as its JavaScript.
+arg() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
+case "$*" in
+  *fingerprint*)  echo "{\"hash\":\"$(cat .fingerprint 2>/dev/null || echo fp1)\"}" ;;
+  *prebuild*)     mkdir -p ios/demo.xcworkspace ;;
+  *repack-app*)   cp -R "$(arg --source-app "$@")" "$(arg -o "$@")"; pwd > "$(arg -o "$@")/main.jsbundle" ;;
+esac

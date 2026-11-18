@@ -1,5 +1,6 @@
 #!/bin/bash
-# Scenario tests for bin/kitchen against stub herdr, codex, gh, xcrun, ssh, and scp.
+# Scenario tests for bin/kitchen against stub herdr, codex, gh, xcrun, ssh, scp, and the
+# build tools (npm, npx, xcodebuild).
 # Usage: test/run.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -101,6 +102,25 @@ git -C "$W" -c user.name=t -c user.email=t@t commit -q --allow-empty -m again
 "$K" check w1 >/dev/null 2>&1
 check "shuts it down after a check"        grep -q "($sim) (Shutdown)" "$STUB_LOG.sims"
 
+echo "# app"
+"$K" worker wa feat/app >/dev/null 2>&1
+A="$(cd "$T/data/worktrees/repo--wa" && pwd -P)"
+echo '{"dependencies":{"expo":"1"}}' > "$A/package.json"
+git -C "$A" add package.json; git -C "$A" -c user.name=t -c user.email=t@t commit -q -m expo
+app=$(cd "$A" && "$K" app 2>/dev/null)
+check "prints the app of the worktree"     test "$app" = "$A/.kitchen/app/demo.app"
+check "builds the native part"             test -f "$app/native"
+check "puts this worktree's JavaScript in" test "$(cat "$app/main.jsbundle")" = "$A"
+(cd "$A" && "$K" app >/dev/null 2>&1)
+check "builds a fingerprint only once"     test "$(calls 'xcodebuild [')" = 1
+echo fp2 > "$A/.fingerprint"
+(cd "$A" && "$K" app >/dev/null 2>&1)
+check "builds again for a new fingerprint" test "$(calls 'xcodebuild [')" = 2
+check "releases the build lock"            test ! -e "$T/data/apps/lock"
+out=$(cd "$W" && "$K" app 2>&1)
+check "refuses a project without Expo"     has "$out" "not an Expo project"
+"$K" "done" wa --force >/dev/null 2>&1
+
 echo "# done"
 out=$("$K" "done" w1 2>&1)
 check "refuses without a merged PR"        has "$out" "not merged"
@@ -179,6 +199,13 @@ out=$("$K" check wr 2>&1)
 check "checks the pushed branch here"      has "$out" "TESTS: 2/2"
 check "checks the commit that was pushed"  test "$(git -C "$T/data/worktrees/repo--wr" rev-parse HEAD)" = "$(git -C "$RW" rev-parse HEAD)"
 check "sends the results over"             test -f "$RW/.kitchen/card.txt"
+echo '{"dependencies":{"expo":"1"}}' > "$T/data/worktrees/repo--wl/package.json"
+git -C "$T/data/worktrees/repo--wl" add package.json; git -C "$T/data/worktrees/repo--wl" -c user.name=t -c user.email=t@t commit -q -m expo
+echo fp3 > "$T/data/worktrees/repo--wl/.fingerprint"
+app=$(cd "$T/data/worktrees/repo--wl" && "$K" app 2>/dev/null)
+check "builds the app on the second machine" test -d "$T/remote/build/repo/dd"
+check "brings the app back"                test -f "$app/native"
+check "builds nothing here then"           test ! -e "$T/data/build/repo/dd/Build/Products/Release-iphonesimulator/demo.app/fp3"
 sed -i '' 's/^REMOTE=true/REMOTE=false/' "$T/data/conf"
 "$K" worker wo feat/o >/dev/null 2>&1
 check "keeps every worker here when off"   bash -c "! grep -q '^ON=' '$T/data/state/wo'"

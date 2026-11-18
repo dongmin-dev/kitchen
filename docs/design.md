@@ -83,6 +83,17 @@ the worker pushed; the verdict and the card are copied back for the worker to re
 notes file exists on both machines and missing lines are copied each way on `tell` and
 `wait`.
 
+**An Expo app is compiled once per fingerprint, not once per branch.** Compiling the
+native part of an iOS app takes minutes, several gigabytes, and most of a laptop, and
+most branches change only JavaScript. `kitchen app` asks Expo for the project's
+fingerprint (a hash of everything native), builds an app for it only when `~/.kitchen/apps`
+has none, and then puts the worktree's own JavaScript into a copy with
+`@expo/repack-app`, which takes seconds. The build runs on the second machine when
+there is one: the sources go over SSH as `git archive`, the app comes back as a tar, so
+nothing has to be pushed first. The tester only installs and walks the app. Apps not
+used for two weeks are deleted. Other iOS projects are still built by the tester with
+`xcodebuild` in the worktree.
+
 **Settings in three layers.** `kitchen.conf` in the install holds every default and is
 never edited, so an update cannot collide with it. `~/.kitchen/conf` changes values for
 one machine, and `~/.kitchen/projects/<project>.conf` for one project on that machine;

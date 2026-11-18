@@ -1,0 +1,8 @@
+#!/bin/bash
+# Stub xcodebuild: makes <scheme>.app in the derived data folder, marked with the
+# fingerprint of the sources it was run in.
+{ printf 'xcodebuild'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+arg() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
+app="$(arg -derivedDataPath "$@")/Build/Products/Release-iphonesimulator/$(arg -scheme "$@").app"
+mkdir -p "$app"
+touch "$app/native" "$app/$(cat .fingerprint 2>/dev/null || echo fp1)"

@@ -1,0 +1,3 @@
+#!/bin/bash
+# Stub npm: "npm ci" does nothing.
+exit 0

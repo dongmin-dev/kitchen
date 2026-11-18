@@ -20,6 +20,7 @@ file-editing tools, and no MCP tools; the only way it can act is the `kitchen` c
 | `kitchen wait <name>` | Wait until the agent stops working, print its state |
 | `kitchen check <worker>` | Codex review against the base branch, then a Codex tester that runs the test suite and walks the user flow (web with Playwright, iOS in a simulator); prints the verdict and a short test card |
 | `kitchen sim` | For the tester: the id of this worktree's iOS simulator, created and booted on first use |
+| `kitchen app` | For the tester: the iOS Simulator app of an Expo project with this worktree's JavaScript in it. The native part is built once per fingerprint, on the second machine when there is one |
 | `kitchen tail <name> [lines]` | The agent's last message (first lines of it) |
 | `kitchen list` | Workers and their current state |
 | `kitchen done <name> [--force]` | After the pull request is merged: close the panes, remove the worktree and the branch |
@@ -77,6 +78,12 @@ and all show up in the one Herdr window. Reviews, tests, and
 workers started with `--sim` stay on the first machine. The second machine clones each
 repository into `~/.kitchen/repos/`; open each clone once with `claude` there to accept
 the trust dialog.
+
+With a second machine, the native iOS builds of Expo apps are made there too. It needs
+Xcode, Node, and CocoaPods in the shell that `ssh <name> 'zsh -lc ...'` starts (for a
+Node from nvm and an Xcode not chosen with `xcode-select`, put the nvm lines and
+`export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in `~/.zprofile`
+there). `BUILD_DIR` in its `~/.kitchen/conf` moves the build folders to another disk.
 
 Open each repository once with `claude` and accept the trust dialog. Worktrees of a
 trusted repository start without asking.

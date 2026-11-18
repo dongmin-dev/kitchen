@@ -122,6 +122,29 @@ Observed with Xcode 27.2 and agent-device 0.21.37.
   first native build made the whole check take about twelve minutes, longer
   than one `kitchen check` waits.
 
+## Expo builds (kitchen app)
+
+Observed with Expo SDK 58, @expo/fingerprint and @expo/repack-app from npm, Xcode 27.2,
+between an M3 Pro MacBook and an M4 Mac mini.
+
+- `npx @expo/fingerprint fingerprint:generate --platform ios` prints JSON with `.hash`.
+  The hash was the same on both machines for the same commit (Node 24 and 25), the same
+  for two branches that changed only JavaScript, and different for a branch that
+  changed native dependencies.
+- `npx expo prebuild -p ios --clean` creates `ios/<name>.xcworkspace` with a scheme of
+  the same name. `xcodebuild -configuration Release -sdk iphonesimulator -destination
+  'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` builds
+  `Build/Products/Release-iphonesimulator/<name>.app` without a simulator runtime
+  installed. A clean build took about five minutes on the Mac mini and left 8 GB of
+  build folder.
+- `npx @expo/repack-app --platform ios --source-app X.app --js-bundle-only -o Y.app -w
+  DIR .` bundles the project's JavaScript into a copy of the app in about eleven seconds.
+  `EXPO_PUBLIC_` variables are read from the environment at that moment.
+- An app built on the Mac mini and repacked on the MacBook installed with `xcrun simctl
+  install` and showed the project's home screen.
+- `xcodebuild` uses the Xcode in `DEVELOPER_DIR` when `xcode-select` still points at the
+  command line tools.
+
 ## A second machine (Herdr machines and SSH)
 
 Observed between two Macs with Herdr 0.9.5 on both.
@@ -157,6 +180,8 @@ Observed between two Macs with Herdr 0.9.5 on both.
 
 ## Not yet observed on the real tools
 
+- A Codex tester using `kitchen app` in a real check (the command itself was run by
+  hand), and a second fingerprint reusing the build folder on the second machine.
 - `kitchen check` answering `STILL RUNNING` for a check longer than nine minutes (the
   long iOS check above was started directly; covered by the stub tests only).
 - Two iOS checks running at the same time, and a third waiting for `SIM_MAX`

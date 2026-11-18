@@ -18,8 +18,13 @@ Steps
    booted. Use only that simulator: `-destination "platform=iOS Simulator,id=<id>"` for
    `xcodebuild`, `--udid <id>` for `agent-device`, `--device <id>` for Expo. Never rely
    on "the booted simulator"; other testers run theirs at the same time.
-   Build the app and start it there (`xcodebuild` with `-derivedDataPath .kitchen/build`
-   then `xcrun simctl install`, or the project's own run command). If the project has
+   For an Expo app, run `kitchen app` with the `EXPO_PUBLIC_` variables the app needs in
+   the environment. It prints the path of a finished app with this branch's JavaScript
+   in it; install that with `xcrun simctl install <id> <path>` and launch it. Never run
+   `expo prebuild`, `expo run:ios`, or `xcodebuild` for an Expo app: the native build is
+   done elsewhere and shared. If `kitchen app` fails, skip the iOS flow and say why.
+   For any other iOS app, build it and start it there (`xcodebuild` with
+   `-derivedDataPath .kitchen/build` then `xcrun simctl install`). If the project has
    XCTest targets, they are part of the test suite in step 1 and run on this simulator.
    Then walk the main user flow this branch changes with `agent-device` (read
    `agent-device help` first) and save screenshots to `.kitchen/shots/`.

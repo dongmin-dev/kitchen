@@ -50,7 +50,7 @@ lock() {
   until mkdir "$DATA/lock" 2>/dev/null || [ $i -ge 120 ]; do sleep 1; i=$((i+1)); done
   trap unlock EXIT
 }
-unlock() { rmdir "$DATA/lock" 2>/dev/null || true; }
+unlock() { trap - EXIT; rmdir "$DATA/lock" 2>/dev/null || true; }
 
 need_herdr() { [ "${HERDR_ENV:-}" = 1 ] || die "run this inside Herdr (start 'herdr' first)"; }
 
@@ -76,12 +76,19 @@ remote() {
   ssh -o BatchMode=yes "$REMOTE_HOST" "zsh -lc $(printf '%q' "$cmd")"
 }
 
+# Print the path of a project's shared notes file, creating the file on first use.
+notes_file() {
+  local n="$DATA/notes/$1.md"
+  mkdir -p "$DATA/notes"
+  [ -f "$n" ] || echo "# Shared notes (newest at the bottom)" > "$n"
+  echo "$n"
+}
+
 # The notes file of a project exists once per machine. Copy to each side the lines it lacks.
 sync_notes() {
   [ -n "${REMOTE_HOST:-}" ] && grep -qs '^ON=' "$STATE"/* || return 0
-  local n="$DATA/notes/$1.md" t
-  mkdir -p "$DATA/notes"
-  [ -f "$n" ] || echo "# Shared notes (newest at the bottom)" > "$n"
+  local n t
+  n=$(notes_file "$1")
   t=$(mktemp)
   if remote _notes "$1" > "$t" 2>/dev/null; then
     grep -Fxv -f "$t" "$n" | remote _notes "$1" add >/dev/null 2>&1 || true
@@ -123,14 +130,18 @@ new_pane() {
   echo "$pane"
 }
 
-# Start an agent in a pane. A freshly created pane needs a moment before its shell is
-# ready (slow .zshrc), and Herdr answers agent_pane_busy until then, so retry.
+# start_agent <name> <pane> <role> <effort> starts Claude Code in a pane. A freshly
+# created pane needs a moment before its shell is ready (slow .zshrc), and Herdr answers
+# agent_pane_busy until then, so retry.
 start_agent() {
-  local name=$1 pane=$2 i out=""
-  shift 2
+  local name=$1 pane=$2 role=$3 effort=$4 i out=""
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     sleep 2
-    if out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- "$@" 2>&1); then return 0; fi
+    if out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- \
+        --model "$WORKER_MODEL" --effort "$effort" \
+        --dangerously-skip-permissions \
+        --append-system-prompt-file "$KITCHEN_HOME/roles/$role.md" \
+        --disallowedTools "Agent" 2>&1); then return 0; fi
     case "$out" in *agent_pane_busy*) ;; *) break ;; esac
   done
   echo "$out" >&2
@@ -204,11 +215,7 @@ cmd_worker() {
   prep_dir "$repo" "$dir"
   # Shared notes: one file per project (the folder chef was started in), linked into
   # every worktree so workers of different repositories can leave facts for each other.
-  local notes
-  notes="$DATA/notes/$project.md"
-  mkdir -p "$DATA/notes"
-  [ -f "$notes" ] || echo "# Shared notes (newest at the bottom)" > "$notes"
-  ln -sf "$notes" "$dir/.kitchen/notes.md"
+  ln -sf "$(notes_file "$project")" "$dir/.kitchen/notes.md"
 
   if ! pane=$(new_pane "$project workers" "$dir" "$name"); then
     git -C "$repo" worktree remove --force "$dir"
@@ -225,11 +232,7 @@ cmd_worker() {
     printf 'PANE=%q\n' "$pane"
   } > "$STATE/$name"
 
-  start_agent "$name" "$pane" \
-      --model "$WORKER_MODEL" --effort "$effort" \
-      --dangerously-skip-permissions \
-      --append-system-prompt-file "$KITCHEN_HOME/roles/worker.md" \
-      --disallowedTools "Agent" \
+  start_agent "$name" "$pane" worker "$effort" \
     || die "worker '$name' is not ready (Herdr's error is above). If the error is agent_not_ready, Claude Code is asking whether to trust the folder, which happens when the main repository $repo has never been opened in Claude Code. Ask the user to open the '$name' pane of the '$project workers' workspace in Herdr and choose 'Yes, I trust this folder', then continue with 'kitchen tell $name ...'. For any other error run 'kitchen done $name --force' and try again."
 
   echo "worker=$name model=$WORKER_MODEL effort=$effort branch=$branch base=$base"
@@ -277,9 +280,8 @@ cmd__worker() {
 }
 cmd__has() { [ -f "$STATE/$1" ]; }
 cmd__notes() {
-  local n="$DATA/notes/$1.md"
-  mkdir -p "$DATA/notes"
-  [ -f "$n" ] || echo "# Shared notes (newest at the bottom)" > "$n"
+  local n
+  n=$(notes_file "$1")
   if [ "${2:-}" = add ]; then cat >> "$n"; else cat "$n"; fi
 }
 # Unpack the results of a check, sent on stdin, into the worker's worktree.
@@ -302,11 +304,7 @@ cmd_designer() {
     printf 'BRANCH=%q\n' "(design, no branch)"
     printf 'PANE=%q\n' "$pane"
   } > "$STATE/$name"
-  start_agent "$name" "$pane" \
-      --model "$WORKER_MODEL" --effort "$effort" \
-      --dangerously-skip-permissions \
-      --append-system-prompt-file "$KITCHEN_HOME/roles/designer.md" \
-      --disallowedTools "Agent" \
+  start_agent "$name" "$pane" designer "$effort" \
     || die "designer '$name' did not start (Herdr's error is above). Look at its pane in the '$project workers' workspace, then run 'kitchen done $name' and try again."
   echo "designer=$name model=$WORKER_MODEL effort=$effort dir=$PWD"
 }
@@ -540,10 +538,16 @@ cmd_done() {
   for p in "${PANE:-}" "${CPANE:-}"; do
     if [ -n "$p" ]; then herdr pane close "$p" >/dev/null 2>&1 || true; fi
   done
-  rm -f "$STATE/$name"
-  if [ "${KIND:-}" = designer ]; then echo "removed designer $name"; return 0; fi
+  if [ "${KIND:-}" = designer ]; then rm -f "$STATE/$name"; echo "removed designer $name"; return 0; fi
   if [ -f "$DIR/.kitchen/sim" ]; then xcrun simctl delete "$(cat "$DIR/.kitchen/sim")" >/dev/null 2>&1 || true; fi
-  if [ -d "$DIR" ]; then git -C "$REPO" worktree remove --force "$DIR" || die "could not remove $DIR"; fi
+  # git can stop halfway through a large worktree and still forget it, so delete what is
+  # left ourselves. The record goes last: until then "kitchen done" can be run again.
+  if [ -d "$DIR" ]; then
+    git -C "$REPO" worktree remove --force "$DIR" 2>/dev/null || rm -rf "$DIR" \
+      || die "could not remove $DIR. Run 'kitchen done $name --force' again."
+    git -C "$REPO" worktree prune
+  fi
+  rm -f "$STATE/$name"
   git -C "$REPO" fetch --quiet --prune origin || true
   if [ "$pr" = MERGED ]; then
     git -C "$REPO" branch -q -D "$BRANCH" 2>/dev/null || true

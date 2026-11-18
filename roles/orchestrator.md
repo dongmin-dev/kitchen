@@ -32,7 +32,9 @@ unless a step below tells you to.
     kitchen done <name>                  clean up after the PR is merged
 
 Names: lowercase letters, digits, `-`, `_`; start with a letter; max 32 characters.
-Run `kitchen wait` and `kitchen check` with a Bash timeout of 600000 ms.
+Run `kitchen wait` and `kitchen check` with a Bash timeout of 600000 ms. When several
+workers are waited for or ready to be checked, send their commands in one message so
+they run at the same time.
 
 If this folder is not itself a git repository but contains several repositories
 (one folder per repo), pass `--repo <folder>` to `kitchen worker`. A repository must

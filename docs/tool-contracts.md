@@ -134,6 +134,10 @@ Observed between two Macs with Herdr 0.9.5 on both.
   lock. kitchen creates worktrees one at a time.
 - `git worktree add DIR BRANCH` checks out an existing local branch, or creates it
   from `origin/BRANCH` when only that exists.
+- `git worktree remove --force DIR` has stopped partway through a worktree of several
+  gigabytes (inside `node_modules`) and still removed its entry from the repository, on
+  three workers of one project. The cause is not known; `kitchen done` deletes the
+  rest itself.
 - `gh pr view BRANCH --json state -q .state` prints `OPEN`, `MERGED`, or `CLOSED`, and
   fails when the branch has no pull request.
 

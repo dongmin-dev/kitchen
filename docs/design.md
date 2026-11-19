@@ -89,10 +89,21 @@ most branches change only JavaScript. `kitchen app` asks Expo for the project's
 fingerprint (a hash of everything native), builds an app for it only when `~/.kitchen/apps`
 has none, and then puts the worktree's own JavaScript into a copy with
 `@expo/repack-app`, which takes seconds. The build runs on the second machine when
-there is one: the sources go over SSH as `git archive`, the app comes back as a tar, so
-nothing has to be pushed first. The tester only installs and walks the app. Apps not
-used for two weeks are deleted. Other iOS projects are still built by the tester with
-`xcodebuild` in the worktree.
+there is one. The tester only installs and walks the app. Apps not used for two weeks
+are deleted.
+
+**Xcode compiles on one machine, apps run on the other.** A native build takes most of
+a laptop, and the laptop is where the simulators, the checks, and the person are. So no
+agent runs `xcodebuild` in a worktree. `kitchen build <xcodebuild arguments>` sends the
+worktree as it is (uncommitted files included, as a tar over SSH, so nothing has to be
+pushed) to the second machine, runs xcodebuild there, and brings the products back:
+the app for the simulator or for macOS, and the test bundles. Tests are built there with
+`build-for-testing` and run on the first machine with `test-without-building`; kitchen
+refuses the `test` action, because a test host started over SSH can wait forever at a
+permission question on the other machine's screen. Each repository has one build folder
+on the build machine. Sources are copied into it by content, so unchanged files keep
+their date and Xcode compiles only what changed, whichever worktree asks. Builds run
+one at a time there. Without a second machine the same commands build on the first.
 
 **Settings in three layers.** `kitchen.conf` in the install holds every default and is
 never edited, so an update cannot collide with it. `~/.kitchen/conf` changes values for

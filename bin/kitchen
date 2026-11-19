@@ -501,22 +501,37 @@ cmd_sim() {
   echo "$udid"
 }
 
+# Print the worktree as it is now, files not yet committed included, as a tar.
+snapshot() {
+  local idx tree
+  idx=$(mktemp)
+  cp "$(git rev-parse --git-path index)" "$idx"
+  tree=$(GIT_INDEX_FILE="$idx" git add -A :/ && GIT_INDEX_FILE="$idx" git write-tree) || true
+  rm -f "$idx"
+  [ -n "$tree" ] || die "could not read the files of this worktree"
+  git archive "$tree"
+}
+
+# Nothing is compiled by Xcode in a worktree. The sources go to the machine that builds
+# (the second machine when REMOTE=true, otherwise this one) as a tar over SSH, and the
+# products come back the same way, so nothing has to be pushed first.
+
 # The iOS Simulator app of the Expo project this is run in, for the tester, printed as a
 # path. Compiling the native part is the heavy step, so it is done once per fingerprint
-# (Expo's hash of everything native) and kept in $DATA/apps, on the second machine when
-# REMOTE=true. Only the JavaScript of this worktree is bundled here, which takes seconds.
+# (Expo's hash of everything native) and kept in $DATA/apps. Only the JavaScript of this
+# worktree is bundled here, which takes seconds.
 cmd_app() {
   local top k hash name base i=0
   top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run 'kitchen app' inside a worktree"
   cd "$top"
-  grep -qs '"expo"' package.json || die "this is not an Expo project; build the app with xcodebuild"
+  grep -qs '"expo"' package.json || die "this is not an Expo project; build the app with 'kitchen build'"
   hash=$(npx --no-install @expo/fingerprint fingerprint:generate --platform ios 2>/dev/null | jq -er .hash) \
     || die "could not compute the project's fingerprint (are its dependencies installed?)"
   name=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
   base="$DATA/apps/$name-$hash"
   k="$top/.kitchen"
   mkdir -p "$k" "$DATA/apps"
-  # One native build at a time; a second caller waits and then finds the app in place.
+  # A second caller waits and then finds the app in place.
   until mkdir "$DATA/apps/lock" 2>/dev/null || [ $i -ge 360 ]; do sleep 5; i=$((i+1)); done
   trap 'rmdir "$DATA/apps/lock" 2>/dev/null' EXIT
   if [ ! -d "$base" ]; then
@@ -524,7 +539,7 @@ cmd_app() {
     find "$DATA/apps" -mindepth 1 -maxdepth 1 -mtime +14 ! -name lock -exec rm -rf {} +
     rm -rf "$base.new"
     mkdir "$base.new"
-    git archive HEAD | if [ "$REMOTE" = true ]; then remote _build "$name"; else cmd__build "$name"; fi \
+    snapshot | if [ "$REMOTE" = true ]; then remote _expo "$name"; else cmd__expo "$name"; fi \
       | tar -C "$base.new" -xf - || die "the native build failed"
     mv "$base.new" "$base"
   fi
@@ -538,24 +553,76 @@ cmd_app() {
   echo "$k/app/$(basename "$base"/*.app)"
 }
 
-# Build the native app from the sources sent on stdin (a tar) and print it on stdout (a
-# tar). Runs on the second machine when there is one. Xcode's build folder is kept
-# between builds, so a later fingerprint compiles only what changed.
-cmd__build() {
-  local d="${BUILD_DIR:-$DATA/build}/$1" ws
-  mkdir -p "$d" || die "cannot use $d on $(hostname -s)"
-  rm -rf "$d/src"
-  mkdir "$d/src"
-  tar -C "$d/src" -xf -
-  cd "$d/src"
-  npm ci --no-audit --no-fund > "$d/build.log" 2>&1 \
-    && npx expo prebuild -p ios --clean >> "$d/build.log" 2>&1 </dev/null \
+# xcodebuild for the folder this is run in, with the arguments given, for workers and
+# the tester: any Xcode project or Swift package, for iOS or macOS. xcodebuild's output
+# goes to stderr. What it built is put in .kitchen/products, printed as a path.
+# Tests are built there and run here: a test that runs over SSH on the machine that
+# builds can stop at a permission question on that machine's screen.
+cmd_build() {
+  local top k name sub a
+  [ $# -gt 0 ] || die "usage: kitchen build <xcodebuild arguments>"
+  for a in "$@"; do
+    if [ "$a" = test ]; then
+      die "tests run on this machine: 'kitchen build ... build-for-testing', then 'xcodebuild test-without-building -xctestrun <products>/<name>.xctestrun -destination ...'"
+    fi
+  done
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || die "run 'kitchen build' inside a worktree"
+  sub=$(git rev-parse --show-prefix)
+  name=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
+  k="$top/.kitchen"
+  rm -rf "$k/products"
+  mkdir -p "$k/products"
+  snapshot | if [ "$REMOTE" = true ]; then remote _xcodebuild "$name" "$sub" "$@"; else cmd__xcodebuild "$name" "$sub" "$@"; fi \
+    | tar -C "$k/products" -xf - || die "xcodebuild did not succeed; its output is above"
+  echo "$k/products"
+}
+
+# The two commands below run on the machine that builds. Each repository has one build
+# folder there, with the sources (src) and Xcode's own folder (dd), which is kept.
+
+# Put the sources sent on stdin (a tar) into the build folder of repository $1, as $D.
+# Builds run one at a time on a machine. A file that did not change keeps its date, so
+# Xcode compiles only what changed since the last build of this repository.
+build_src() {
+  local root="${BUILD_DIR:-$DATA/build}" i=0
+  D="$root/$1"
+  mkdir -p "$D/src" || die "cannot use $D on $(hostname -s)"
+  until mkdir "$root/lock" 2>/dev/null || [ $i -ge 360 ]; do sleep 5; i=$((i+1)); done
+  trap build_end EXIT
+  rm -rf "$D/in"
+  mkdir "$D/in"
+  tar -C "$D/in" -xf -
+  rsync -rlpc --delete "$D/in/" "$D/src/"
+  rm -rf "$D/in"
+}
+build_end() { trap - EXIT; rmdir "$(dirname "$D")/lock" 2>/dev/null || true; }
+
+# Build the native app of an Expo project and print it on stdout (a tar).
+cmd__expo() {
+  local ws
+  build_src "$1"
+  cd "$D/src"
+  npm ci --no-audit --no-fund > "$D/build.log" 2>&1 \
+    && npx expo prebuild -p ios --clean >> "$D/build.log" 2>&1 </dev/null \
     && ws=$(ls -d ios/*.xcworkspace) \
     && xcodebuild -workspace "$ws" -scheme "$(basename "$ws" .xcworkspace)" -configuration Release \
          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-         -derivedDataPath "$d/dd" CODE_SIGNING_ALLOWED=NO -quiet >> "$d/build.log" 2>&1 </dev/null \
-    || die "the build failed on $(hostname -s); see $d/build.log there"
-  tar -C "$d/dd/Build/Products/Release-iphonesimulator" -cf - "$(basename "$ws" .xcworkspace).app"
+         -derivedDataPath "$D/dd" CODE_SIGNING_ALLOWED=NO -quiet >> "$D/build.log" 2>&1 </dev/null \
+    || die "the build failed on $(hostname -s); see $D/build.log there"
+  tar -C "$D/dd/Build/Products/Release-iphonesimulator" -cf - "$(basename "$ws" .xcworkspace).app"
+  build_end
+}
+
+# Run xcodebuild in folder $2 of the sources and print the products on stdout (a tar).
+cmd__xcodebuild() {
+  local sub=$2
+  build_src "$1"
+  shift 2
+  cd "$D/src/$sub"
+  xcodebuild -derivedDataPath "$D/dd" "$@" >&2 </dev/null || die "xcodebuild failed on $(hostname -s)"
+  mkdir -p "$D/dd/Build/Products"
+  tar -C "$D/dd/Build/Products" -cf - .
+  build_end
 }
 
 cmd_list() {
@@ -706,10 +773,12 @@ case "$cmd" in
   _results) cmd__results "$@" ;;
   sim)      cmd_sim ;;
   app)      cmd_app ;;
-  _build)   cmd__build "$@" ;;
+  build)    cmd_build "$@" ;;
+  _expo)    cmd__expo "$@" ;;
+  _xcodebuild) cmd__xcodebuild "$@" ;;
   list)     cmd_list ;;
   done)     cmd_done "$@" ;;
   conf)     cmd_conf ;;
   doctor)   cmd_doctor ;;
-  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim app list done conf doctor" ;;
+  *) sed -n '2,3p' "$0"; echo "commands: worker designer tell wait tail check sim app build list done conf doctor" ;;
 esac

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scenario tests for bin/kitchen against stub herdr, codex, gh, xcrun, ssh, scp, and the
-# build tools (npm, npx, xcodebuild).
+# build tools (npm, npx, xcodebuild; rsync is the real one).
 # Usage: test/run.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -121,6 +121,26 @@ out=$(cd "$W" && "$K" app 2>&1)
 check "refuses a project without Expo"     has "$out" "not an Expo project"
 "$K" "done" wa --force >/dev/null 2>&1
 
+echo "# build"
+echo n1 > "$W/.fingerprint"
+out=$(cd "$W" && "$K" build -scheme demo -sdk iphonesimulator 2>/dev/null)
+check "prints the products of the worktree" test "$out" = "$(cd "$W" && pwd -P)/.kitchen/products"
+check "builds files that are not committed" test -f "$out/Release-iphonesimulator/demo.app/n1"
+check "passes the arguments to xcodebuild" has "$(cat "$STUB_LOG")" "[-scheme] [demo] [-sdk] [iphonesimulator]"
+check "leaves the worktree's index alone"  test -z "$(git -C "$W" diff --cached --name-only)"
+mkdir "$W/pkg"; echo n2 > "$W/pkg/.fingerprint"
+out=$(cd "$W/pkg" && "$K" build -scheme demo 2>/dev/null)
+check "builds in the folder it is run in"  test -f "$out/Release-iphonesimulator/demo.app/n2"
+rm -r "$W/pkg"
+(cd "$W" && "$K" build -scheme demo >/dev/null 2>&1)
+check "drops files that were deleted"      test ! -e "$T/data/build/repo/src/pkg"
+out=$(cd "$W" && STUB_FAIL_BUILD=1 "$K" build -scheme demo 2>&1)
+check "refuses to run tests over there"    has "$(cd "$W" && "$K" build -scheme demo test 2>&1)" "build-for-testing"
+check "fails when xcodebuild fails"        has "$out" "xcodebuild did not succeed"
+check "shows xcodebuild's output"          has "$out" "error: build failed"
+check "releases the build lock"            test ! -e "$T/data/build/lock"
+rm "$W/.fingerprint"
+
 echo "# done"
 out=$("$K" "done" w1 2>&1)
 check "refuses without a merged PR"        has "$out" "not merged"
@@ -206,6 +226,11 @@ app=$(cd "$T/data/worktrees/repo--wl" && "$K" app 2>/dev/null)
 check "builds the app on the second machine" test -d "$T/remote/build/repo/dd"
 check "brings the app back"                test -f "$app/native"
 check "builds nothing here then"           test ! -e "$T/data/build/repo/dd/Build/Products/Release-iphonesimulator/demo.app/fp3"
+echo n3 > "$T/data/worktrees/repo--wl/.fingerprint"
+out=$(cd "$T/data/worktrees/repo--wl" && "$K" build -scheme demo 2>/dev/null)
+check "runs xcodebuild on the second machine" test -f "$T/remote/build/repo/dd/Build/Products/Release-iphonesimulator/demo.app/n3"
+check "brings the products back"           test -f "$out/Release-iphonesimulator/demo.app/n3"
+check "runs no xcodebuild here then"       test ! -e "$T/data/build/repo/dd/Build/Products/Release-iphonesimulator/demo.app/n3"
 sed -i '' 's/^REMOTE=true/REMOTE=false/' "$T/data/conf"
 "$K" worker wo feat/o >/dev/null 2>&1
 check "keeps every worker here when off"   bash -c "! grep -q '^ON=' '$T/data/state/wo'"

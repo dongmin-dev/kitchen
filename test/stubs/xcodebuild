@@ -1,7 +1,8 @@
 #!/bin/bash
 # Stub xcodebuild: makes <scheme>.app in the derived data folder, marked with the
-# fingerprint of the sources it was run in.
+# fingerprint of the sources it was run in. STUB_FAIL_BUILD makes it fail.
 { printf 'xcodebuild'; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
+if [ -n "${STUB_FAIL_BUILD:-}" ]; then echo "error: build failed"; exit 65; fi
 arg() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
 app="$(arg -derivedDataPath "$@")/Build/Products/Release-iphonesimulator/$(arg -scheme "$@").app"
 mkdir -p "$app"

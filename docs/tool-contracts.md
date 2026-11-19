@@ -145,6 +145,34 @@ between an M3 Pro MacBook and an M4 Mac mini.
 - `xcodebuild` uses the Xcode in `DEVELOPER_DIR` when `xcode-select` still points at the
   command line tools.
 
+## Xcode builds on the second machine (kitchen build)
+
+Observed with Xcode 27.2 between an M3 Pro MacBook and an M4 Mac mini, on a small
+SwiftUI app for iOS and macOS with a unit test target.
+
+- `xcodebuild -derivedDataPath DD -scheme S -destination 'generic/platform=iOS Simulator'
+  build-for-testing` writes `Build/Products/Debug-iphonesimulator/S.app` and
+  `Build/Products/S_iphonesimulator<version>-<archs>.xctestrun`. Copied to the other
+  machine, `xcodebuild test-without-building -xctestrun FILE -destination
+  "platform=iOS Simulator,id=ID"` ran the tests there, and the app installed with
+  `simctl install` and started.
+- The same with `-destination 'platform=macOS'` writes `Debug/S.app` and
+  `S_macosx<version>-arm64.xctestrun`; the tests ran and the app opened on the other
+  machine. A project with automatic signing and no team fails with "requires a
+  development team" unless `CODE_SIGN_IDENTITY=-` is passed.
+- The `test` action over SSH with the build folder on an external disk: a passing test
+  finished, a failing one never did. The test host app stopped in `open()` while
+  XCTest looked up symbols, with no CPU use, as macOS does while it asks on screen for
+  access to a removable volume.
+- `rsync -rlpc --delete A/ B/` (the openrsync of macOS) leaves a file with the same
+  content untouched, date included, and removes files that are gone from A.
+- A tree made with `git add -A` and `git write-tree` on a copy of the index
+  (`GIT_INDEX_FILE`) holds uncommitted and untracked files and leaves the real index as
+  it was; `git archive TREE` prints it as a tar.
+- bash 3.2 does not run an `EXIT` trap when a subshell of a pipeline ends by reaching
+  its end, only on `exit`; and with `set -e` a failing command in an `EXIT` trap becomes
+  the exit status.
+
 ## A second machine (Herdr machines and SSH)
 
 Observed between two Macs with Herdr 0.9.5 on both.
@@ -180,8 +208,13 @@ Observed between two Macs with Herdr 0.9.5 on both.
 
 ## Not yet observed on the real tools
 
-- A Codex tester using `kitchen app` in a real check (the command itself was run by
-  hand), and a second fingerprint reusing the build folder on the second machine.
+- A Codex tester using `kitchen app` or `kitchen build` in a real check (both commands
+  were run by hand), and a second fingerprint reusing the build folder on the second
+  machine.
+- A macOS flow walked by the tester with `agent-device --platform macos`.
+- `kitchen build` for a Swift package without an Xcode project, and for a project that
+  needs `pod install` or `npm ci` first (React Native without Expo): nothing installs
+  those on the build machine.
 - `kitchen check` answering `STILL RUNNING` for a check longer than nine minutes (the
   long iOS check above was started directly; covered by the stub tests only).
 - Two iOS checks running at the same time, and a third waiting for `SIM_MAX`

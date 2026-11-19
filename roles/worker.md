@@ -15,6 +15,17 @@ You implement one task inside this folder. It is a git worktree with its own bra
   slot); never create or boot one yourself. Shut it down with
   `xcrun simctl shutdown <id>` as soon as you have what you need, and stop the dev
   server you started for it; other workers are waiting for the slot.
+- Xcode compiles nothing in this folder. Never run `xcodebuild` to build or test, nor
+  `swift build`, `swift test`, `expo prebuild`, or `expo run:ios`. Build with
+  `kitchen build <xcodebuild arguments>`, run in the folder that holds the Xcode project
+  or `Package.swift`: it builds your files as they are now on the build machine, shows
+  xcodebuild's output, and prints a folder with the products (the `.app`, the
+  `.xctestrun`). Do not pass `-derivedDataPath`. Use `-destination 'generic/platform=iOS
+  Simulator'` for iOS, and `-destination 'platform=macOS' CODE_SIGN_IDENTITY=-` for
+  macOS. Tests are built there and run here: `kitchen build ... build-for-testing`, then
+  `xcodebuild test-without-building -xctestrun <products>/<name>.xctestrun -destination
+  <platform=macOS, or your simulator> -derivedDataPath .kitchen/build`. For an Expo
+  app, `kitchen app` prints a finished iOS Simulator app with your JavaScript in it.
 - First make the project runnable here: install dependencies if they are missing.
 - Write or update automated tests for what you change, and run the whole test suite.
 - When the task is done: commit, push the branch, and open a PR with `gh pr create --fill`

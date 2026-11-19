@@ -162,8 +162,9 @@ SwiftUI app for iOS and macOS with a unit test target.
   development team" unless `CODE_SIGN_IDENTITY=-` is passed.
 - The `test` action over SSH with the build folder on an external disk: a passing test
   finished, a failing one never did. The test host app stopped in `open()` while
-  XCTest looked up symbols, with no CPU use, as macOS does while it asks on screen for
-  access to a removable volume.
+  XCTest looked up symbols, with no CPU use, while that machine's screen showed a
+  question about access to the external disk. The question is asked per app, so
+  answering it once does not help the next project.
 - `rsync -rlpc --delete A/ B/` (the openrsync of macOS) leaves a file with the same
   content untouched, date included, and removes files that are gone from A.
 - A tree made with `git add -A` and `git write-tree` on a copy of the index
